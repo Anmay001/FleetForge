@@ -1,0 +1,101 @@
+---
+title: "FleetForge Project Structure and Layout"
+description: "Explore the FleetForge source tree, from React views and Zustand stores to the pure TypeScript coordination engine and Three.js scene components."
+sidebarTitle: "Project Structure"
+---
+
+FleetForge is organized as a standard Vite + React project. The `src/` directory separates UI components, simulation hooks, the coordination engine, data definitions, and state stores so each layer can evolve independently.
+
+## Source tree
+
+```text
+src/
+├── App.tsx
+├── main.tsx
+├── index.css
+├── components/
+│   ├── analytics/
+│   │   ├── BatteryHealthCard.tsx
+│   │   ├── DistanceChart.tsx
+│   │   └── MetricKpiGrid.tsx
+│   ├── common/
+│   │   ├── AppShell.tsx
+│   │   ├── Header.tsx
+│   │   ├── Sidebar.tsx
+│   │   ├── StatusBadge.tsx
+│   │   └── status.ts
+│   ├── events/
+│   │   └── LiveEventFeed.tsx
+│   ├── fleet/
+│   │   └── FleetGrid.tsx
+│   ├── settings/
+│   │   └── SettingsPanel.tsx
+│   ├── simulation/
+│   │   ├── CanvasFooter.tsx
+│   │   ├── KpiStrip.tsx
+│   │   ├── NewTaskModal.tsx
+│   │   ├── SimulationControls.tsx
+│   │   ├── TelemetryInspector.tsx
+│   │   └── three/
+│   │       ├── AMRs.tsx
+│   │       ├── Lights.tsx
+│   │       ├── Obstacles.tsx
+│   │       ├── WarehouseFloor.tsx
+│   │       ├── WarehouseRacks.tsx
+│   │       ├── WarehouseScene.tsx
+│   │       └── constants.ts
+│   └── tasks/
+│       ├── TaskKpiRibbon.tsx
+│       └── TaskQueueTable.tsx
+├── data/
+│   ├── mockFleet.ts
+│   ├── mockTasks.ts
+│   └── warehouseLayout.ts
+├── engine/
+│   ├── pheromoneMap.ts
+│   ├── routePlanner.ts
+│   ├── routeRegistry.ts
+│   └── waypointGraph.ts
+├── hooks/
+│   ├── useSimulationLoop.ts
+│   └── useTaskGenerator.ts
+├── store/
+│   ├── useFleetStore.ts
+│   └── useThemeStore.ts
+└── types/
+    └── fleet.ts
+```
+
+## Responsibilities
+
+| Path | Responsibility |
+| --- | --- |
+| `src/App.tsx` | Root component that mounts the simulation hooks, manages the active view state, and renders the current page. |
+| `src/main.tsx` | Application entry point. Creates the React root and mounts `App` in `StrictMode`. |
+| `src/index.css` | Tailwind directives, design system tokens under `@layer components`, scrollbar styles, and theme-aware color overrides. |
+| `src/store/` | Two Zustand stores: `useFleetStore` holds robots, tasks, events, and simulation flags; `useThemeStore` manages light and dark mode. |
+| `src/hooks/` | `useSimulationLoop` drives the 5 Hz coordinator and ~30 Hz motion ticks; `useTaskGenerator` spawns tasks every 10–30 seconds. |
+| `src/engine/` | Pure TypeScript coordination logic with no React imports: waypoint graph, A\* route planner, pheromone cost field, and reservation registry. |
+| `src/data/` | Mock fleet definitions, seed tasks, and the canonical warehouse layout including lanes, racks, obstacles, charging pads, and drop zones. |
+| `src/types/fleet.ts` | Shared TypeScript interfaces for robots, tasks, events, racks, obstacles, and the public robot status enum. |
+| `src/components/analytics/` | Dashboard KPI grids, distance charts, and battery health cards used in the Dashboard and Analytics views. |
+| `src/components/common/` | App shell, header, sidebar navigation, status badges, and the shared semantic tone map (`status.ts`). |
+| `src/components/events/` | Live event feed component with compact and full-height variants. |
+| `src/components/fleet/` | Per-robot cards rendered in the Fleet Management view. |
+| `src/components/settings/` | Settings panel for UI appearance and simulation preferences. |
+| `src/components/simulation/` | KPI strip, command toolbar, telemetry inspector, canvas footer, and new-task modal for the 3D Simulation view. |
+| `src/components/simulation/three/` | React Three Fiber scene: warehouse floor, racks, lights, obstacles, and AMR meshes with labels and selection rings. |
+| `src/components/tasks/` | Task queue table with sorting and filtering, plus the task KPI ribbon. |
+
+## Root files
+
+| File | Role |
+| --- | --- |
+| `vite.config.ts` | Vite configuration with the React plugin. No aliases, proxy, or manual chunks. |
+| `tsconfig.json` | Strict TypeScript settings including `noUnusedLocals`, `noUnusedParameters`, and `isolatedModules`. |
+| `tailwind.config.cjs` | Tailwind CSS configuration with `darkMode: 'class'` and content paths for `index.html` and `src/**/*.{ts,tsx}`. |
+| `postcss.config.cjs` | PostCSS configuration that loads Tailwind CSS and autoprefixer. |
+| `index.html` | HTML entry point that loads the Vite client bundle. |
+| `public/favicon.svg` | Site favicon served from the public directory. |
+| `docs/` | Existing modular documentation bundled with the repository (architecture, components, engine, hooks, and more). |
+| `DOCUMENTATION.md` | Consolidated project reference covering features, architecture, engine internals, and performance metrics. |

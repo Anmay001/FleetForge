@@ -1,0 +1,73 @@
+---
+title: "FleetForge 3D Warehouse Simulation and Controls"
+description: "Explore FleetForge's 20 x 20 m 3D warehouse digital twin built with Three.js. Navigate lanes, waypoints, racks, and live AMRs with orbit, top view, and follow-camera controls."
+sidebarTitle: "Warehouse Simulation"
+---
+
+FleetForge renders a live 3D digital twin of a 20 x 20 metre warehouse inside the `WarehouseScene` component. The scene is built with Three.js via `@react-three/fiber` and `@react-three/drei`, and it updates in real time as the simulation loop drives robot motion, obstacle placement, and route reservations.
+
+## Warehouse layout
+
+The floor is a 20 x 20 metre grid with a 4 metre lane spacing. AMRs travel only along the lane lines. The layout data lives in `src/data/warehouseLayout.ts`.
+
+| Element | Count | Details |
+| --- | --- | --- |
+| Floor | 1 | 20 x 20 m, checkerboard tiles |
+| Lanes | 5 x 5 | `LANES.x = [2, 6, 10, 14, 18]` and `LANES.z = [2, 6, 10, 14, 18]` |
+| Waypoints | 13 | 2 charging pads, 2 drop zones, 8 rack approach points, 1 centre hub |
+| Racks | 8 | 2 x 2 m footprints, 4 shelves each, arranged in two rows |
+| Charging pads | 2 | `CHARGE-01` at (2, 2) and `CHARGE-02` at (2, 18) |
+| Drop zones | 2 | `DROP-01` at (17, 1) and `DROP-02` at (17, 17), each 3 x 3 m |
+| Static obstacles | 4 | `OBS-01` through `OBS-04` placed in cell interiors off every lane |
+| AMRs | 5 | `AMR-01` through `AMR-05`, each with a distinct colour |
+
+The waypoint list from the layout file:
+
+```text
+WAYPOINTS = [
+  { id: 'CHARGE-01', x: 2,  z: 2  },
+  { id: 'CHARGE-02', x: 2,  z: 18 },
+  { id: 'DROP-01',   x: 18, z: 2  },
+  { id: 'DROP-02',   x: 18, z: 18 },
+  { id: 'RACK-A1',   x: 6,  z: 6  },
+  { id: 'RACK-A2',   x: 10, z: 6  },
+  { id: 'RACK-A3',   x: 14, z: 6  },
+  { id: 'RACK-A4',   x: 18, z: 6  },
+  { id: 'RACK-B1',   x: 6,  z: 14 },
+  { id: 'RACK-B2',   x: 10, z: 14 },
+  { id: 'RACK-B3',   x: 14, z: 14 },
+  { id: 'RACK-B4',   x: 18, z: 14 },
+  { id: 'HUB-C',     x: 10, z: 10 },
+]
+```
+
+## AMR digital twin parts
+
+Each robot in the scene is rendered by `AMRs.tsx` with the following visual elements:
+
+- **Chassis** — a coloured box (`0.8 x 0.4 x 0.8` m) using the robot's assigned colour
+- **Wheels** — four small cylinders at the corners
+- **Heading cone** — a white cone pointing along the direction of travel when the robot is moving
+- **Payload box** — a smaller box on top when `payload` is not null
+- **Selection ring** — a green ring under the selected robot
+- **Emergency dot** — a pulsing red sphere when `isEmergencyStopped` is true
+- **Destination marker** — a blue ring at the current target waypoint, visible only for the selected robot
+- **Floating ID label** — an HTML overlay showing the robot ID and status, with prominence tiers for selected, attention-needed, moving, and idle states
+
+## Camera controls
+
+The `SimulationControls` toolbar and `WarehouseScene` together provide four camera modes:
+
+- **3D view** — default perspective camera at `[16, 14, 16]` with orbit, pan, and zoom enabled via `OrbitControls`
+- **Top view** — orthographic-style overhead camera at `[10, 22, 10.01]` with `fov: 40`; orbit rotation is disabled
+- **Follow selected robot** — when enabled, the camera target smoothly lerps toward the selected robot's position every frame
+- **Camera reset** — increments a `resetKey` to force the camera back to its initial pose and target `[10, 0, 10]`
+- **Fullscreen** — toggles browser fullscreen on the entire document
+
+## Interaction
+
+Click any robot in the 3D scene to select it. The selection updates `useFleetStore.selectedRobotId`, which synchronizes across the `TelemetryInspector`, `FleetGrid`, and the scene itself. Click an empty area of the floor to deselect the current robot. The invisible deselection plane spans the full `GRID_SIZE` and sits just below the floor surface.
+
+## Scene palette
+
+Colours adapt to the active theme via `useThemeStore`. The `PALETTES` object in `src/components/simulation/three/constants.ts` defines light and dark variants for floors, lanes, racks, drop zones, charging pads, obstacles, and the background. Fog and background colours match the active palette so the scene blends with the surrounding UI.

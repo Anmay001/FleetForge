@@ -1,0 +1,77 @@
+---
+title: "FleetForge HiveMind Engine: Decentralized Coordination"
+description: "FleetForge's HiveMind engine coordinates AMRs without a central scheduler. Learn how the waypoint graph, A* planner, pheromone cost field, and route registry work together to prevent collisions and deadlocks."
+sidebarTitle: "HiveMind Engine"
+---
+
+FleetForge coordinates its five AMRs without a central scheduler. Each robot plans its own route using local knowledge of reservations and congestion. The engine is built from four pure TypeScript modules that live outside React and can be unit-tested independently.
+
+## Waypoint graph
+
+`src/engine/waypointGraph.ts` builds an adjacency graph from the 13 waypoints in `src/data/warehouseLayout.ts`. Waypoints sit on a 4 m lane grid (`LANE_STEP = 4`) at coordinates where `x` or `z` belongs to `[2, 6, 10, 14, 18]`.
+
+Two waypoints become neighbors only when all of the following hold:
+
+1. They share the same `x` or the same `z` within tolerance `TOL = 0.1`.
+2. Their gap on the other axis is a positive multiple of `LANE_STEP = 4`.
+3. No other waypoint sits strictly between them on that lane.
+
+The module exports `WAYPOINT_GRAPH`, `findPath(startId, goalId)` (BFS), and `snapToWaypoint(x, z)` (nearest waypoint by Euclidean distance). The graph is built once at module load and never changes.
+
+## A\* planner
+
+`src/engine/routePlanner.ts` runs cost-aware A\* over `WAYPOINT_GRAPH`. The cost of moving from one waypoint to another combines distance, congestion, and hard reservations:
+
+```text
+cost = distance * (1 + pheromone * 6.0)
+     + 100 (if segment reserved by another robot)
+     +  50 (if waypoint occupied by another robot)
+```
+
+The constants are:
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `PHEROMONE_COST_FACTOR` | 6.0 | How strongly pheromone congestion steers the planner |
+| `RESERVED_SEGMENT_PENALTY` | 100.0 | Avoid a segment another robot has published |
+| `OCCUPIED_WAYPOINT_PENALTY` | 50.0 | Avoid stepping onto a waypoint held by another robot |
+
+The heuristic is Euclidean distance, which keeps A\* admissible on base distance while penalties make it eager to detour. The planner accepts a `PlannerContext` containing `reservedSegments`, `occupiedWaypoints`, and `selfId` so a robot never penalizes itself for its own lock.
+
+## Pheromone cost field
+
+`src/engine/pheromoneMap.ts` implements an ant-colony-inspired cost field. Every time a robot traverses a segment, it deposits pheromone. Other robots then see that segment as more expensive and are steered toward alternative corridors.
+
+| Constant | Value | Behavior |
+| --- | --- | --- |
+| `DEPOSIT_AMOUNT` | 0.35 | Pheromone added per traversal |
+| `DECAY_PER_SEC` | 0.08 | Evaporation rate (8% per second) |
+| `MAX_PHEROMONE` | 1.0 | Saturation cap |
+
+Segments are keyed canonically (`a < b ? "a|b" : "b|a"`) so both directions share the same field. Values below 0.01 are pruned to keep the map small. Decay is called on every coordinator tick inside `useSimulationLoop`.
+
+## Route registry
+
+`src/engine/routeRegistry.ts` is the reservation layer. It holds two maps: waypoint locks and route publications. Locks grant exclusive access to a waypoint; publications let other robots see which segments a robot intends to use.
+
+| Method | Behavior |
+| --- | --- |
+| `lockWaypoint(waypointId, robotId)` | Acquire the lock if free, expired, or already owned |
+| `refreshLock(waypointId, robotId)` | Extend the TTL while still holding |
+| `releaseWaypoint(waypointId, robotId)` | Drop the lock only if owned |
+| `owner(waypointId)` | Current holder or null |
+| `occupiedWaypoints(excludeRobotId?)` | Map of waypoint to robot for all live locks |
+| `reservedSegments(excludeRobotId?)` | Set of canonical segment keys from all published paths |
+| `tick()` | Sweep expired locks and stale publications |
+| `clear()` | Wipe everything on simulation reset |
+
+| Constant | Value | Meaning |
+| --- | --- | --- |
+| `LOCK_TTL_MS` | 8000 | A lock expires if not refreshed within 8 seconds |
+| `PUBLICATION_TTL_MS` | 15000 | A route publication drops if not republished within 15 seconds |
+
+TTL-based expiry provides emergency-stop liveness. If a robot is emergency-stopped mid-route, it releases nothing manually, but its locks expire after 8 seconds and its publication drops after 15 seconds. The rest of the fleet then routes around the abandoned waypoints automatically.
+
+<Tip>
+  The registry provides **hard constraints**: a robot cannot move onto a locked waypoint. The pheromone field provides **soft congestion signals**: heavily trafficked lanes become expensive but not forbidden. A\* combines both into a single cost, so robots yield when blocked and spread out when traffic is light.
+</Tip>

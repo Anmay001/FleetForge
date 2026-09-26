@@ -1,0 +1,74 @@
+---
+title: "FleetForge Task Generation and Lifecycle"
+description: "Learn how FleetForge auto-generates warehouse tasks every 10–30 seconds, caps active tasks at 20, and lets operators create manual tasks via the New Task modal."
+sidebarTitle: "Task Generation"
+---
+
+FleetForge generates pickup-and-drop tasks continuously using the `useTaskGenerator` hook. Tasks are stored in `useFleetStore` and displayed in the `TaskQueueTable`, the `KpiStrip`, and the `TaskKpiRibbon`. You can also create tasks manually through the `NewTaskModal`.
+
+## Task shape
+
+A task is represented by the `WarehouseTask` type defined in `src/types/fleet.ts`.
+
+<ParamField body="id" type="string">
+  Auto-generated unique identifier (for example, `task-abc123`).
+</ParamField>
+
+<ParamField body="boxId" type="string">
+  Identifier for the box to transport (for example, `BOX-D245`).
+</ParamField>
+
+<ParamField body="pickupNode" type="string">
+  Waypoint ID where the box is collected (for example, `RACK-A2`).
+</ParamField>
+
+<ParamField body="dropLocation" type="string">
+  Waypoint ID where the box is delivered (for example, `DROP-01`).
+</ParamField>
+
+<ParamField body="assignedRobotId" type="string">
+  The robot assigned to this task (for example, `AMR-03`).
+</ParamField>
+
+<ParamField body="status" type="string">
+  One of `QUEUED`, `MOVING_TO_PICKUP`, `DROPPING`, or `COMPLETED`.
+</ParamField>
+
+<ParamField body="createdAt" type="string">
+  ISO timestamp recorded when the task was created.
+</ParamField>
+
+## Generation cadence
+
+The `useTaskGenerator` hook schedules the next task using a random delay between `MIN_INTERVAL_MS` (10 000 ms) and `MAX_INTERVAL_MS` (30 000 ms). Before creating a task, it checks two conditions:
+
+1. The number of non-completed tasks must be below `MAX_ACTIVE_TASKS` (20).
+2. The simulation must be running (`store.isRunning` is true).
+
+If either condition is not met, the timer reschedules without adding a task. The hook runs once on mount and cleans up its timeout on unmount.
+
+## How pickup and drop are chosen
+
+Auto-generated tasks use randomized selections from the warehouse layout:
+
+- **Pickup node**: drawn from `WAYPOINTS.filter(w => w.id.startsWith('RACK-'))`, which yields the eight rack approach points (`RACK-A1` through `RACK-A4` and `RACK-B1` through `RACK-B4`).
+- **Drop location**: drawn from `DROP_ZONES`, which contains `DROP-01` and `DROP-02`.
+- **Assigned robot**: a random robot ID from the current fleet.
+- **Box ID**: generated as `BOX-D` followed by a random number between 200 and 999.
+
+Each time a task is created, an `INFO` event is emitted with the message `Task auto-generated for {boxId} -> {dropLocation}`.
+
+## Operator-initiated tasks
+
+Click the **New task** button in `SimulationControls` (available on the Simulation and Tasks views) to open the `NewTaskModal`. The modal lets you specify:
+
+- Box ID (free text, required)
+- Pickup node (dropdown of rack waypoints)
+- Drop location (dropdown of drop zones)
+- Assigned robot (dropdown of current fleet members with live status)
+
+Submitting the modal calls `useFleetStore.addTask` with `status: 'QUEUED'`.
+
+## Task lifecycle
+
+Queued tasks are displayed in the UI and updated by the coordinator as robots progress. It is important to note the relationship between the task queue and robot movement: the coordinator inside `useSimulationLoop.ts` uses its own `pickDestination` function to choose where each robot moves next. That destination picker selects waypoints randomly from the full waypoint set, with special handling for low-battery routing to charging pads. The task queue in `useFleetStore` records what was generated and assigned, but the actual movement of each robot is driven by the coordinator's internal destination logic rather than a strict binding to queued `WarehouseTask` objects. Both systems run in parallel, so you see tasks accumulating in the table while robots navigate autonomously through the warehouse.

@@ -1,0 +1,111 @@
+---
+title: "FleetForge State Management with Zustand Stores"
+description: "FleetForge uses two Zustand stores for all UI-visible state. Learn how useFleetStore and useThemeStore are structured, how components subscribe, and where engine state lives outside React."
+sidebarTitle: "State Management"
+---
+
+FleetForge uses Zustand for all UI-visible state. The engine modules keep their own in-memory state outside React, which keeps the coordination logic pure and testable. This page covers both stores, the single-writer discipline, and how to read state efficiently.
+
+## useFleetStore
+
+`useFleetStore` is the single source of truth for simulation state. It is created with Zustand's `create` and holds the following fields:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `robots` | `AMR[]` | Live robot states: position, speed, battery, status, payload, destination |
+| `tasks` | `WarehouseTask[]` | Task queue with pickup, drop, and status |
+| `events` | `SimulationEvent[]` | Ring buffer of the last 100 simulation events |
+| `obstacles` | `Obstacle[]` | Static and runtime obstacles in the warehouse |
+| `selectedRobotId` | `string \| null` | Currently selected robot for telemetry and follow mode |
+| `isRunning` | `boolean` | Whether the simulation loop is active |
+| `isEmergencyStopped` | `boolean` | Global emergency stop flag |
+| `simulationSpeed` | `0.5 \| 1 \| 2 \| 5` | Speed multiplier for motion and timeouts |
+| `simulationStartedAt` | `number` | Timestamp used to detect resets |
+| `coordinationStats` | `{ totalAssignments, totalConflictsResolved, peakConcurrentRoutes }` | Aggregated coordination metrics |
+
+Actions exposed by the store:
+
+| Action | Signature | Behavior |
+| --- | --- | --- |
+| `selectRobot` | `(id: string \| null) => void` | Set the selected robot |
+| `setRunning` | `(v: boolean) => void` | Pause or resume the simulation loop |
+| `toggleEmergencyStop` | `() => void` | Flip the emergency stop flag |
+| `setSpeed` | `(s: 0.5 \| 1 \| 2 \| 5) => void` | Change the simulation speed multiplier |
+| `updateRobot` | `(id: string, patch: Partial<AMR>) => void` | Merge a partial update into one robot |
+| `addEvent` | `(e: Omit<SimulationEvent, 'id' \| 'timestamp'>) => void` | Append an event with generated id and timestamp, capped at 100 entries |
+| `addTask` | `(t: Omit<WarehouseTask, 'id' \| 'createdAt'>) => void` | Append a task with generated id and timestamp |
+| `addObstacle` | `(o: Omit<Obstacle, 'id'>) => void` | Append an obstacle with generated id |
+| `resetSimulation` | `() => void` | Restore initial fleet, tasks, and obstacles; clear events; reset flags and stats |
+
+The event ring buffer is implemented with `.slice(0, 100)` inside `addEvent`, so the store never grows unbounded:
+
+```ts
+addEvent: (e) => set((s) => {
+  const newEvent: SimulationEvent = {
+    ...e,
+    id: `EVT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    timestamp: new Date().toISOString(),
+  };
+  const events = [newEvent, ...s.events].slice(0, 100);
+  return { events };
+}),
+```
+
+## useThemeStore
+
+`useThemeStore` manages the UI theme. It is also created with Zustand's `create`:
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `theme` | `'light' \| 'dark'` | Current theme |
+| `setTheme` | `(t: Theme) => void` | Set theme explicitly |
+| `toggle` | `() => void` | Switch between light and dark |
+
+`App.tsx` subscribes to the theme and toggles the `dark` class on `document.documentElement`:
+
+```ts
+const theme = useThemeStore((s) => s.theme);
+useEffect(() => {
+  const root = document.documentElement;
+  if (theme === 'dark') root.classList.add('dark');
+  else root.classList.remove('dark');
+}, [theme]);
+```
+
+This pairs with Tailwind's `darkMode: 'class'` setting so the entire UI, including the 3D scene palette, responds to the same store value.
+
+## Single writer discipline
+
+Components subscribe with selectors and never mutate robot state directly. Only three sources write to the store:
+
+1. **The simulation loop** writes robot kinematics, battery, status, and events during normal execution.
+2. **The task generator** writes new tasks.
+3. **Explicit operator actions** write selection, run state, emergency stop, speed, and per-robot patches.
+
+The 3D scene reads positions via selectors and renders them, but it writes nothing back. This rule prevents race conditions and keeps the data flow one-directional.
+
+## Selector hygiene
+
+Use narrow selectors so components re-render only when the data they actually display changes:
+
+```tsx
+// Good: re-renders only when robots change
+const robots = useFleetStore((s) => s.robots);
+
+// Good: re-renders only when the selected robot changes
+const robot = useFleetStore((s) =>
+  s.robots.find((r) => r.id === s.selectedRobotId)
+);
+
+// Avoid: re-renders on every store write
+const store = useFleetStore();
+```
+
+## Engine state outside React
+
+Two engine modules keep their own state as module singletons, outside the React tree:
+
+- `pheromoneMap` in `src/engine/pheromoneMap.ts` holds a `Map<string, number>` of segment keys to pheromone levels.
+- `routeRegistry` in `src/engine/routeRegistry.ts` holds waypoint locks and route publications in private Maps.
+
+These are not in Zustand because they are simulation internals, not UI-visible state. The simulation loop reads and writes them directly, and they are cleared on `resetSimulation`.

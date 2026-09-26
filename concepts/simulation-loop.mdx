@@ -1,0 +1,107 @@
+---
+title: "FleetForge Simulation Loop: Dual-Rate Coordinator + Motion"
+description: "FleetForge's useSimulationLoop runs a 5 Hz coordinator tick for decisions and a ~30 Hz motion tick for kinematics. Learn how the dual-rate loop, speed multiplier, and reset handling work."
+sidebarTitle: "Simulation Loop"
+---
+
+The `useSimulationLoop` hook drives every robot in FleetForge. It uses a dual-rate design: a slow coordinator tick makes routing decisions, and a fast motion tick integrates position and speed. Both run inside a single `requestAnimationFrame` loop mounted once in `App.tsx`.
+
+## Frame gate (~30 Hz)
+
+The loop starts with a frame gate to keep motion smooth without overworking the main thread:
+
+```ts
+const loop = (now: number) => {
+  rafRef.current = requestAnimationFrame(loop);
+
+  if (now - lastFrameRef.current < 33) return;
+  const deltaMs = now - lastFrameRef.current;
+  lastFrameRef.current = now;
+  // ...
+};
+```
+
+If fewer than 33 ms have passed since the last frame, the loop returns early. This produces approximately 30 frames per second for motion updates while letting the browser paint freely.
+
+## Coordinator tick (5 Hz)
+
+Every 200 ms (`COORD_TICK_MS = 200`), the loop calls `runCoordinator`. The coordinator processes robots in a stable numeric-id order to keep behavior deterministic. On each tick it does the following in order:
+
+1. Expire stale locks and publications by calling `routeRegistry.tick()`.
+2. Decay pheromones by calling `pheromoneMap.decay(nowMs)`.
+3. For each robot, dispatch behavior based on its current internal phase:
+   - **IDLE**: pick a destination and plan a route.
+   - **MOVING**: wait until the motion tick reports arrival, then advance along the path.
+   - **WAITING**: retry the next waypoint lock; after 6000 ms, abandon the route and replan.
+   - **ALIGNING**: after 500 ms, transition to `PICKING_UP`.
+   - **PICKING_UP**: after 1000 ms, generate a payload and plan a drop route.
+   - **DROPPING**: after 800 ms, release the waypoint and return to `IDLE`.
+   - **CHARGING**: recharge at `0.5 * (200 / 1000)` per tick; release at 90% or above.
+   - **OBSTACLE**: after 2000 ms, resume `MOVING`.
+
+## Motion tick (30 Hz)
+
+The `applyMotion` function runs for every robot whose phase is `MOVING` and whose next waypoint is set. It ramps speed with `ACCEL = 0.4`, decelerates within 1 unit of the target with `DECEL = 0.8`, clamps to `MAX_SPEED = 0.9`, and snaps to the waypoint when distance falls below `ARRIVAL_TOL = 0.1`. Battery drains at `0.02 * dtSec` while moving.
+
+```ts
+function applyMotion(robot: AMR, phase: RobotPhase, dtSec: number): void {
+  if (phase.phase !== 'MOVING') return;
+  if (!phase.nextWaypointId) return;
+  if (phase.reachedTarget) return;
+
+  const targetWp = WAYPOINT_MAP[phase.nextWaypointId];
+  const dx = targetWp.x - robot.position.x;
+  const dz = targetWp.z - robot.position.z;
+  const dist = Math.hypot(dx, dz);
+
+  if (dist < ARRIVAL_TOL) {
+    useFleetStore.getState().updateRobot(robot.id, {
+      position: { x: targetWp.x, y: 0, z: targetWp.z },
+      speed: 0,
+    });
+    phase.reachedTarget = true;
+    return;
+  }
+
+  let newSpeed = robot.speed + ACCEL * dtSec;
+  if (dist < 1.0) newSpeed = robot.speed - DECEL * dtSec;
+  newSpeed = Math.max(0, Math.min(MAX_SPEED, newSpeed));
+
+  const step = Math.min(newSpeed * dtSec, dist);
+  const nx = robot.position.x + (dx / dist) * step;
+  const nz = robot.position.z + (dz / dist) * step;
+
+  useFleetStore.getState().updateRobot(robot.id, {
+    position: { x: nx, y: 0, z: nz },
+    speed: newSpeed,
+    distanceTravelled: robot.distanceTravelled + step,
+    battery: Math.max(0, robot.battery - 0.02 * dtSec),
+  });
+}
+```
+
+## Simulation speed multiplier
+
+The store holds `simulationSpeed` with allowed values `0.5`, `1`, `2`, and `5`. The motion tick scales `dtSec` by this multiplier before integrating position and battery drain:
+
+```ts
+const speedMultiplier = store.simulationSpeed;
+const dtSec = (deltaMs / 1000) * speedMultiplier;
+```
+
+The coordinator tick interval stays fixed at 200 ms regardless of speed, so decisions do not run faster in 2x or 5x mode. Only motion, battery drain, and phase timeouts are accelerated.
+
+## Reset handling
+
+When `simulationStartedAt` changes, the loop detects the mismatch and performs a full reset:
+
+```ts
+if (lastStartRef.current !== store.simulationStartedAt) {
+  lastStartRef.current = store.simulationStartedAt;
+  phasesRef.current.clear();
+  routeRegistry.clear();
+  pheromoneMap.clear();
+}
+```
+
+This clears all per-robot phase state, every waypoint lock, every route publication, and every pheromone trail. The store itself is reset by `resetSimulation()`, which restores the initial fleet, tasks, and obstacles.

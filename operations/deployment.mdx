@@ -1,0 +1,67 @@
+---
+title: "Build and Deploy FleetForge"
+description: "Build FleetForge for production with Vite and deploy the static bundle to any single-page app host. No backend or runtime configuration is required."
+sidebarTitle: "Deployment"
+---
+
+FleetForge is a static Vite application. The entire product is a single-page bundle plus assets, so you can build it once and serve it from any host that supports static files. There is no backend, no API server, and no runtime configuration.
+
+## Build for production
+
+<Steps>
+  <Step title="Type-check and bundle">
+    ```bash
+    npm run build
+    ```
+
+    This runs `tsc && vite build`. TypeScript compiles in strict mode, then Vite emits the production bundle into `dist/`.
+  </Step>
+  <Step title="Smoke-test the bundle locally">
+    ```bash
+    npm run preview
+    ```
+
+    Vite serves the `dist/` folder so you can verify the build before uploading it anywhere.
+  </Step>
+</Steps>
+
+## What the bundle contains
+
+The `dist/` output is a standard Vite production build:
+
+- A single JavaScript chunk (`assets/index-*.js`) containing React 19, Three.js, Zustand, and the application code
+- A CSS chunk (`assets/index-*.css`) with the Tailwind-generated utility classes and the FleetForge design system
+- `index.html` and the favicon
+
+There are no environment variables injected at build time and no server-side entry point. Everything the app needs is shipped in those files.
+
+## Hosting
+
+Any static-file host that can serve a single-page app works. Because FleetForge uses in-app view switching (not a URL router), you do not need rewrite rules for client-side routes. Suggested options:
+
+- **Vercel** — drag the `dist/` folder or connect the Git repository
+- **Netlify** — drop `dist/` or enable continuous deployment from `main`
+- **GitHub Pages** — publish the `dist/` folder from a GitHub Action or manually
+- **Cloudflare Pages** — upload the `dist/` folder
+- **AWS S3 + CloudFront** — upload the build artifacts to an S3 bucket and serve through CloudFront
+- **Nginx** — serve the `dist/` directory with a standard static site configuration
+
+<Note>
+  FleetForge does not include a Dockerfile, a CI/CD pipeline, or a custom deploy script in the repository. If you need those, you must add them yourself.
+</Note>
+
+## Runtime requirements
+
+- A modern browser with **WebGL 2** support (required by the Three.js warehouse scene)
+- Sufficient GPU performance for the 3D digital twin; the UI itself is lightweight
+- JavaScript enabled; no other plugins or extensions are needed
+
+There are no server-side components, no database connections, and no authentication flows. The simulation runs entirely inside the user's browser.
+
+## Post-deploy verification
+
+After you deploy, confirm these three things in order:
+
+1. **Dashboard loads** — the app shell, sidebar, and header render without console errors.
+2. **WebGL initialises** — open the 3D Simulation view and verify the warehouse floor, racks, and AMRs appear. A blank canvas usually means WebGL is disabled or the GPU driver blocked the context.
+3. **Event feed streams entries** — within a few seconds of loading, the event log should show coordinator ticks, route assignments, and state changes. This proves the simulation loop and Zustand stores are wired correctly on the client.

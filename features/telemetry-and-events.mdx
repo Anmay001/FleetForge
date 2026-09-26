@@ -1,0 +1,92 @@
+---
+title: "FleetForge Telemetry Inspector and Live Event Feed"
+description: "Inspect live robot telemetry in FleetForge's TelemetryInspector and track fleet events in the chronological LiveEventFeed. Both components read directly from the Zustand store."
+sidebarTitle: "Telemetry and Events"
+---
+
+FleetForge exposes two live monitoring surfaces: `TelemetryInspector` for per-robot telemetry and `LiveEventFeed` for a chronological event stream. Both components subscribe to `useFleetStore` and update automatically as the simulation loop progresses.
+
+## Telemetry inspector
+
+`TelemetryInspector` appears in the right-hand operations rail of the 3D Simulation view. It displays data for the currently selected robot, falling back to the first robot in the fleet if none is selected.
+
+The inspector is organized into four blocks:
+
+1. **Identity and status** — robot colour dot, ID, live status text, and a five-unit selector grid. Each selector button shows the robot's numeric ID and a tone-coloured status dot.
+2. **Power** — battery percentage, tone label (`Healthy`, `Low`, or `Critical`), and a meter bar coloured by `toneOfBattery`.
+3. **Mission** — current task ID, destination waypoint, and payload box ID (only when carrying).
+4. **Telemetry** — position coordinates (X and Z), current speed in metres per second, and total distance travelled.
+
+Below the telemetry blocks, the inspector provides operator actions: **Stop**, **Pause**, **Resume**, **Reroute** (in a 2x2 grid), **Send to charging pad** (full width), and an **Emergency stop / Resume operations** toggle with a **Bring all units online** button.
+
+The fields displayed map directly to the `AMR` type in `src/types/fleet.ts`:
+
+```typescript
+interface AMR {
+  id: string;
+  numericId: string;
+  battery: number;
+  status: RobotStatus;
+  position: { x: number; y: number; z: number };
+  targetPosition: { x: number; y: number; z: number };
+  speed: number;
+  distanceTravelled: number;
+  currentTask: string | null;
+  destination: string;
+  payload: string | null;
+  isEmergencyStopped: boolean;
+  color: string;
+}
+```
+
+Status badges and battery meters use the shared tone system in `src/components/common/status.ts`. `StatusBadge` renders a dot and normal-case label, with the dot pulsing for `OBSTACLE_DETECTED`, `DANGER`, and `WARN` states.
+
+## Live event feed
+
+`LiveEventFeed` renders a chronological list of `SimulationEvent` records. It supports two variants:
+
+- **Compact** (default) — used in the Simulation view's bottom-right panel; collapsible and height-capped at 176 px when expanded
+- **Full** — used on the Events view; fills the entire page height
+
+The feed is a ring buffer capped at 100 entries. Each row shows:
+
+- Timestamp (`HH:MM:SS`)
+- Source robot ID (coloured by the robot's assigned colour)
+- Message text
+- A 2 px left border coloured by event severity
+
+Event severity maps to tone as follows:
+
+| Event type | Tone | Colour |
+| --- | --- | --- |
+| `INFO` | `info` | Blue |
+| `WARN` | `warn` | Amber |
+| `DANGER` | `danger` | Red |
+| `SUCCESS` | `ok` | Green |
+
+The `SimulationEvent` type is defined in `src/types/fleet.ts`:
+
+```typescript
+interface SimulationEvent {
+  id: string;
+  timestamp: string;
+  robotId: string;
+  message: string;
+  type: 'INFO' | 'WARN' | 'DANGER' | 'SUCCESS';
+}
+```
+
+For display, the feed strips a redundant leading robot ID prefix from the message (for example, `AMR-01 rerouted by operator` becomes `Rerouted by operator`). The stored event text is never modified.
+
+## Event sources
+
+Events are produced by the coordinator and the operator controls. Common event types include:
+
+- Routing decisions and reroutes
+- Waiting and blocked states
+- Task completion
+- Charge complete
+- Payload secured
+- Auto-generated tasks
+
+When the feed is empty, the compact variant shows `Waiting for events...` with a scroll icon.

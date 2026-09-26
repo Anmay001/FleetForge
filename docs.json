@@ -1,1 +1,54 @@
-
+{
+  "theme": "aspen",
+  "name": "FleetForge",
+  "colors": {
+    "primary": "#10b981",
+    "light": "#34d399",
+    "dark": "#059669"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get Started",
+        "pages": [
+          "index",
+          "quickstart",
+          "project-structure"
+        ]
+      },
+      {
+        "group": "Concepts",
+        "pages": [
+          "concepts/architecture",
+          "concepts/simulation-loop",
+          "concepts/hivemind-engine",
+          "concepts/state-management"
+        ]
+      },
+      {
+        "group": "Features",
+        "pages": [
+          "features/views",
+          "features/warehouse-simulation",
+          "features/task-generation",
+          "features/telemetry-and-events"
+        ]
+      },
+      {
+        "group": "Reference",
+        "pages": [
+          "reference/robot-state-machine",
+          "reference/engine-api",
+          "reference/configuration"
+        ]
+      },
+      {
+        "group": "Operations",
+        "pages": [
+          "operations/development",
+          "operations/deployment"
+        ]
+      }
+    ]
+  }
+}

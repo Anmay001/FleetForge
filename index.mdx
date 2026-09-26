@@ -1,0 +1,48 @@
+---
+title: "FleetForge: Autonomous Warehouse Fleet Command"
+description: "FleetForge is a browser-based command dashboard with a live 3D digital twin, coordination engine, and telemetry for simulating AMR fleets in a warehouse. No backend required."
+sidebarTitle: "Introduction"
+---
+
+FleetForge is a single-page React application that simulates and supervises a fleet of autonomous mobile robots inside a warehouse. It renders a live 3D digital twin, runs a built-in coordination engine with A\* pathfinding and pheromone-based traffic dispersal, and exposes telemetry, task queues, and analytics. Everything runs entirely in the browser with no backend, no database, and no environment variables.
+
+<CardGroup cols={2}>
+  <Card title="Quickstart" icon="rocket" href="/quickstart">
+    Get FleetForge running locally in under a minute.
+  </Card>
+
+  <Card title="Architecture" icon="layers" href="/concepts/architecture">
+    Learn how the five-layer system is organized.
+  </Card>
+
+  <Card title="HiveMind Engine" icon="sparkle" href="/concepts/hivemind-engine">
+    Explore the A\* planner, pheromone cost field, and reservation registry.
+  </Card>
+
+  <Card title="Views" icon="book" href="/features/views">
+    Browse the seven built-in dashboard views.
+  </Card>
+</CardGroup>
+
+## How the simulation works
+
+<Steps>
+  <Step title="Task generator queues work">
+    A background task generator creates a random pickup-and-drop task every 10–30 seconds whenever fewer than 20 active tasks are in the queue.
+  </Step>
+  <Step title="Coordinator assigns and plans">
+    The 5 Hz coordinator tick picks destinations for idle robots, plans routes with A\* using live pheromone and reservation data, and locks the next waypoint.
+  </Step>
+  <Step title="Motion tick integrates movement">
+    The ~30 Hz motion tick accelerates and decelerates each robot along its route, updates positions, and drains battery at 0.02 per second while moving.
+  </Step>
+  <Step title="Pheromones disperse traffic">
+    Robots deposit pheromones on used lane segments so future plans naturally avoid congestion. The field decays 8% per second, allowing lanes to reopen over time.
+  </Step>
+  <Step>
+  </Step>
+</Steps>
+
+<Note>
+  FleetForge is a simulation and visualization tool. It does not connect to external APIs, persist data to a database, require authentication, or integrate with real hardware. All state lives in memory and resets on page reload.
+</Note>

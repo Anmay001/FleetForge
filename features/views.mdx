@@ -1,0 +1,45 @@
+---
+title: "FleetForge Views: Seven Dashboard Screens"
+description: "Navigate FleetForge's seven views: Dashboard, 3D Simulation, Fleet, Tasks, Events, Analytics, and Settings. Each view exposes live fleet data through purpose-built components."
+sidebarTitle: "Views"
+---
+
+FleetForge presents every operator function through seven dedicated views. You switch between them using the left sidebar, which groups Monitoring views together and places Settings under System. Each view is a self-contained screen rendered inside the shared `AppShell`.
+
+| View | Route key | Purpose | Key components |
+| --- | --- | --- | --- |
+| Dashboard | `dashboard` | Fleet-wide KPIs, distance chart, battery health | `MetricKpiGrid`, `DistanceChart`, `BatteryHealthCard` |
+| 3D Simulation | `simulation` | Live warehouse twin, telemetry, event log, KPI strip | `WarehouseScene`, `SimulationControls`, `TelemetryInspector`, `LiveEventFeed`, `KpiStrip`, `CanvasFooter` |
+| Fleet | `fleet` | Per-robot cards with live status and telemetry | `FleetGrid` |
+| Tasks | `tasks` | Sortable and filterable task queue with speed control | `TaskQueueTable`, `SimulationControls` |
+| Events | `events` | Full-height chronological event log | `LiveEventFeed` with `variant='full'` |
+| Analytics | `analytics` | Same KPI grid and charts as Dashboard | `MetricKpiGrid`, `DistanceChart`, `BatteryHealthCard` |
+| Settings | `settings` | Appearance, simulation, and display preferences | `SettingsPanel` |
+
+## Dashboard
+
+The Dashboard is the default landing view. It shows the same `MetricKpiGrid`, `DistanceChart`, and `BatteryHealthCard` components used in Analytics, giving you an immediate snapshot of fleet health, task throughput, and per-robot distance. Use it for a quick status check before diving into the simulation.
+
+## 3D Simulation
+
+This is the primary operational view. The top half is the live `WarehouseScene` canvas, with a `KpiStrip` above it and `SimulationControls` directly underneath. The right-hand operations rail contains `TelemetryInspector` on top and a compact `LiveEventFeed` below. `CanvasFooter` overlays the bottom of the canvas with a legend and obstacle count. This is where you run the fleet, place obstacles, follow robots, and inspect telemetry in real time.
+
+## Fleet
+
+Fleet Management renders a grid of robot cards via `FleetGrid`. Each card shows the robot's colour dot, live `StatusBadge`, battery meter, distance travelled, current speed, active task, and destination. Click any card to select that robot across the entire application. The selected card highlights with an emerald border.
+
+## Tasks
+
+Task Management displays the `TaskQueueTable` with a `TaskKpiRibbon` at the top. You can search by task ID, box ID, or assigned robot; filter by status; and sort by any column. A segmented control lets you set simulation speed to `0.5x`, `1x`, `2x`, or `5x`. The `SimulationControls` toolbar also appears here so you can create a new task without leaving the view.
+
+## Events
+
+The Events view renders `LiveEventFeed` in `variant='full'` inside a full-height panel. This gives you an uninterrupted chronological stream of routing, waiting, blocked, completion, charge, and auto-generated task events. Each row shows the timestamp, source robot, and message with a severity-coloured left border.
+
+## Analytics
+
+Analytics mirrors the Dashboard layout exactly. It exists as a separate navigation target so you can keep a KPI-focused tab open while operating in the 3D Simulation view. Both views read the same Zustand store, so numbers stay synchronized.
+
+## Settings
+
+Settings houses the `SettingsPanel`, which currently controls appearance (light or dark theme via `useThemeStore`) and displays simulation and display preferences. The About section shows the version string, SIH identifier, and runtime stack.

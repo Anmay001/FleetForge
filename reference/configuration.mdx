@@ -1,0 +1,135 @@
+---
+title: "Build Tooling, Tailwind, and Simulation Constants"
+description: "Reference for FleetForge's build configuration, TypeScript settings, Tailwind tokens, and every tunable simulation constant in the source code."
+sidebarTitle: "Configuration"
+---
+
+FleetForge takes no runtime configuration. Behaviour is tuned by editing TypeScript constants in the source and rebuilding. This page covers the build toolchain, Tailwind design tokens, the full table of simulation constants, and the explicit statement that no environment variables are required.
+
+## Build tooling
+
+### Vite
+
+`vite.config.ts` is minimal: it imports `@vitejs/plugin-react` and exports a default config with no custom aliases, proxy rules, or manual chunks.
+
+```ts
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+
+export default defineConfig({
+  plugins: [react()],
+});
+```
+
+### TypeScript
+
+`tsconfig.json` enforces strict mode and modern module resolution.
+
+| Option | Value | Effect |
+| --- | --- | --- |
+| `target` | `ES2020` | Emit modern JavaScript. |
+| `module` | `ESNext` | Native ES modules. |
+| `moduleResolution` | `bundler` | Vite-compatible resolution. |
+| `jsx` | `react-jsx` | Automatic JSX runtime. |
+| `strict` | `true` | Strict null checks, no implicit `any`. |
+| `noUnusedLocals` | `true` | Unused locals are errors. |
+| `noUnusedParameters` | `true` | Unused parameters are errors (prefix with `_` to allow). |
+| `noFallthroughCasesInSwitch` | `true` | Every `case` must terminate with `break` or `return`. |
+| `isolatedModules` | `true` | Each file must be independently transpilable. |
+| `allowImportingTsExtensions` | `true` | Import `.ts` and `.tsx` directly. |
+
+The project also includes `tsconfig.node.json` for Vite's own Node-based config files.
+
+### PostCSS and Tailwind
+
+`postcss.config.cjs` runs Tailwind CSS and Autoprefixer.
+
+```js
+module.exports = {
+  plugins: {
+    tailwindcss: {},
+    autoprefixer: {},
+  },
+};
+```
+
+`tailwind.config.cjs` configures the content paths, dark mode strategy, and a set of custom tokens.
+
+| Token | Value | Notes |
+| --- | --- | --- |
+| `content` | `./index.html`, `./src/**/*.{ts,tsx}` | Scans all source files for class names. |
+| `darkMode` | `'class'` | Toggled by adding or removing the `dark` class on the root element. |
+| `theme.extend.fontFamily.sans` | `"Inter Variable"`, `system-ui`, `sans-serif` | Body and UI text. |
+| `theme.extend.fontFamily.mono` | `"JetBrains Mono"`, `ui-monospace`, `monospace` | Metrics, coordinates, and tabular data. |
+| `theme.extend.borderRadius.DEFAULT` | `3px` | Base radius token. |
+| `theme.extend.borderRadius.sm` | `4px` | Small radius. |
+| `theme.extend.borderRadius.md` | `6px` | Medium radius. |
+| `theme.extend.borderRadius.lg` / `xl` / `2xl` | `8px` | Maximum allowed radius; anything larger is a bug. |
+| `theme.extend.boxShadow.sm` | `0 1px 2px 0 rgb(15 23 42 / 0.06)` | Subtle elevation. |
+| `theme.extend.boxShadow.DEFAULT` | `0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.08)` | Default card elevation. |
+| `theme.extend.boxShadow.md` | `0 4px 12px -4px rgb(15 23 42 / 0.12)` | Medium overlay elevation. |
+| `theme.extend.boxShadow.lg` | `0 12px 28px -8px rgb(15 23 42 / 0.18)` | Large overlay elevation. |
+| `theme.extend.boxShadow.2xl` | `0 24px 48px -12px rgb(15 23 42 / 0.30)` | Maximum overlay elevation. |
+
+Because `package.json` declares `"type": "module"`, the Tailwind and PostCSS configs use the `.cjs` extension.
+
+## Tuning constants
+
+The table below lists every tunable constant in the source, grouped by file. Change a value and reload the dev server to see the effect immediately.
+
+### Simulation loop (`src/hooks/useSimulationLoop.ts`)
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `COORD_TICK_MS` | `200` | Coordinator decision loop interval; 5 Hz. |
+| `WAIT_TIMEOUT_MS` | `6000` | Hard timeout before a blocked robot abandons its route and replans. |
+| `REPLAN_COOLDOWN_MS` | `1500` | Minimum delay between successive planning attempts from `IDLE`. |
+| `MAX_SPEED` | `0.9` | Maximum linear speed in metres per second. |
+| `ACCEL` | `0.4` | Acceleration in metres per second squared. |
+| `DECEL` | `0.8` | Deceleration in metres per second squared. |
+| `ARRIVAL_TOL` | `0.1` | Distance threshold in metres; below this the robot snaps to the waypoint. |
+
+### Route planner (`src/engine/routePlanner.ts`)
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `PHEROMONE_COST_FACTOR` | `6.0` | How strongly pheromone congestion steers the A\* planner. |
+| `RESERVED_SEGMENT_PENALTY` | `100.0` | Extra cost for a segment another robot has published in its path. |
+| `OCCUPIED_WAYPOINT_PENALTY` | `50.0` | Extra cost for a waypoint currently locked by another robot. |
+
+### Pheromone map (`src/engine/pheromoneMap.ts`)
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `DEPOSIT_AMOUNT` | `0.35` | Pheromone deposited on a segment each time a robot traverses it. |
+| `DECAY_PER_SEC` | `0.08` | Fractional evaporation per second (8 %). |
+| `MAX_PHEROMONE` | `1.0` | Ceiling for any single segment's pheromone level. |
+
+### Route registry (`src/engine/routeRegistry.ts`)
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `LOCK_TTL_MS` | `8000` | Time before an unrefreshed waypoint lock expires. |
+| `PUBLICATION_TTL_MS` | `15000` | Time before a stale route publication is dropped. |
+
+### Task generator (`src/hooks/useTaskGenerator.ts`)
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `MIN_INTERVAL_MS` | `10000` | Shortest delay between auto-generated tasks. |
+| `MAX_INTERVAL_MS` | `30000` | Longest delay between auto-generated tasks. |
+| `MAX_ACTIVE_TASKS` | `20` | Ceiling for the number of incomplete tasks in the queue. |
+
+### Warehouse layout (`src/data/warehouseLayout.ts`)
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `LANES.x` | `[2, 6, 10, 14, 18]` | x coordinates of travel lanes in the 20 m warehouse. |
+| `LANES.z` | `[2, 6, 10, 14, 18]` | z coordinates of travel lanes. |
+| `LANE_STEP` | `4` | Distance between adjacent lanes. Used to compute waypoint adjacency. |
+
+## Environment variables
+
+FleetForge requires no environment variables. There is no `.env` file in the repository, no runtime API keys, and no external service configuration. The application is a static client-side build; everything it needs is compiled into the bundle.
+
+If you later add environment-specific values for a deployment pipeline, remember that Vite inlines every `VITE_`-prefixed variable into the client bundle. Do not place secrets in these variables because they will be visible in the shipped JavaScript.

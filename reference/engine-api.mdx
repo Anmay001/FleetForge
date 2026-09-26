@@ -1,0 +1,206 @@
+---
+title: "Engine Module APIs for Fleet Coordination"
+description: "Reference for FleetForge's pure TypeScript engine modules: waypoint graph, A* route planner, pheromone cost field, and reservation registry."
+sidebarTitle: "Engine API"
+---
+
+FleetForge's coordination logic lives in four pure TypeScript modules under `src/engine/`. They have no React dependencies and can be imported, inspected, or unit-tested outside the component tree. This page documents every exported symbol, the data shapes they accept, and a short example that shows how the simulation loop composes them into a planning context.
+
+## waypointGraph.ts
+
+Builds the warehouse graph from `WAYPOINTS` at module load. Neighbourship is derived from the lane grid: two waypoints are connected when they share the same x or z coordinate, are an exact multiple of `LANE_STEP = 4` apart, and have no other waypoint between them.
+
+<ResponseField name="WAYPOINT_GRAPH" type="Record<string, GraphNode>">
+  The full graph keyed by waypoint ID. Each node carries its world coordinates and adjacent waypoint IDs.
+</ResponseField>
+
+<ResponseField name="GraphNode" type="interface">
+  - `id: string` — waypoint identifier
+  - `x: number` — world x coordinate
+  - `z: number` — world z coordinate
+  - `neighbors: string[]` — adjacent waypoint IDs on the same lane
+</ResponseField>
+
+<ResponseField name="findPath(startId, goalId)" type="string[] | null">
+  Breadth-first shortest path including both endpoints. Returns `null` if the start or goal does not exist or is unreachable.
+</ResponseField>
+
+<ResponseField name="snapToWaypoint(x, z)" type="string | null">
+  Returns the nearest waypoint ID by Euclidean distance, or `null` if the waypoint list is empty.
+</ResponseField>
+
+## routePlanner.ts
+
+A\* planner that searches `WAYPOINT_GRAPH` while penalising congestion, reserved segments, and occupied waypoints. The heuristic is Euclidean distance, so the planner remains admissible on base cost while penalties encourage detours around traffic.
+
+<ResponseField name="PlannerContext" type="interface">
+  - `reservedSegments: Set<string>` — canonical segment keys (`"A|B"`) claimed by other robots
+  - `occupiedWaypoints: Map<string, string>` — waypoint ID → robot ID for nodes currently locked by others
+  - `selfId: string` — the requesting robot's own ID; its own locks are not penalised
+</ResponseField>
+
+<ResponseField name="planRoute(startId, goalId, ctx)" type="string[] | null">
+  A\* search from `startId` to `goalId` using the provided context. Returns the waypoint sequence or `null` if no path exists.
+</ResponseField>
+
+<ResponseField name="validateLaneAlignment()" type="boolean">
+  Sanity check that every neighbour pair shares an axis and that every waypoint sits on a declared lane. Used by the coordinator to detect graph corruption.
+</ResponseField>
+
+### Cost constants
+
+| Constant | Value | Effect |
+| --- | --- | --- |
+| `PHEROMONE_COST_FACTOR` | `6.0` | Multiplies pheromone level into edge cost. |
+| `RESERVED_SEGMENT_PENALTY` | `100.0` | Added when another robot has published the segment in its remaining path. |
+| `OCCUPIED_WAYPOINT_PENALTY` | `50.0` | Added when another robot currently holds a lock on the target waypoint. |
+
+The total edge cost is:
+
+```text
+edgeCost = distance * (1 + pheromone * 6.0)
+       + 100 (if segment reserved by another robot)
+       +  50 (if waypoint occupied by another robot)
+```
+
+## pheromoneMap.ts
+
+Singleton cost field inspired by ant-colony trail laying. Robots deposit pheromone as they traverse segments, and the field decays over time so congestion naturally disperses.
+
+<ResponseField name="pheromoneMap" type="PheromoneMap (singleton)">
+  The global pheromone store. Imported directly; no constructor call needed.
+</ResponseField>
+
+<ResponseField name="segmentKey(a, b)" type="string">
+  Canonical key formed by sorting the two waypoint IDs alphabetically. Both directions share the same field.
+</ResponseField>
+
+<ResponseField name="deposit(fromId, toId, amount?)" type="void">
+  Adds `amount` (default `DEPOSIT_AMOUNT`) to the segment, capped at `MAX_PHEROMONE`.
+</ResponseField>
+
+<ResponseField name="get(fromId, toId)" type="number">
+  Reads the current pheromone level for the segment, or `0` if never visited.
+</ResponseField>
+
+<ResponseField name="decay(nowMs)" type="void">
+  Evaporates all trails based on elapsed time since the last call. Entries below `0.01` are removed.
+</ResponseField>
+
+<ResponseField name="size()" type="number">
+  Returns the count of segments with non-zero pheromone.
+</ResponseField>
+
+<ResponseField name="clear()" type="void">
+  Resets all pheromones and the decay timer. Called on simulation reset.
+</ResponseField>
+
+<ResponseField name="entries()" type="Array<[string, number]>">
+  Snapshot of the internal trail map for debugging or diagnostics.
+</ResponseField>
+
+### Pheromone constants
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `DEPOSIT_AMOUNT` | `0.35` | Pheromone deposited per traversal. |
+| `DECAY_PER_SEC` | `0.08` | Fractional evaporation per second (8 %). |
+| `MAX_PHEROMONE` | `1.0` | Hard ceiling for any segment. |
+
+## routeRegistry.ts
+
+Singleton reservation system. Robots publish their planned paths and lock waypoints to guarantee exclusive access. Unrefreshed locks and stale publications expire automatically so the fleet can recover from stopped or removed robots.
+
+<ResponseField name="routeRegistry" type="RouteRegistry (singleton)">
+  The global registry. Imported directly; no constructor call needed.
+</ResponseField>
+
+<ResponseField name="publish(robotId, path, nextWaypointId)" type="void">
+  Records or updates the robot's current route plan.
+</ResponseField>
+
+<ResponseField name="unpublish(robotId)" type="void">
+  Removes the robot's route publication.
+</ResponseField>
+
+<ResponseField name="get(robotId)" type="RoutePublication | undefined">
+  Returns the robot's current publication, or `undefined` if none exists.
+</ResponseField>
+
+<ResponseField name="lockWaypoint(waypointId, robotId)" type="boolean">
+  Acquires a lock on the waypoint. Returns `true` if the waypoint was free, expired, or already held by the same robot.
+</ResponseField>
+
+<ResponseField name="refreshLock(waypointId, robotId)" type="void">
+  Extends the lock TTL to `now + LOCK_TTL_MS`, but only if the robot already owns it.
+</ResponseField>
+
+<ResponseField name="releaseWaypoint(waypointId, robotId)" type="void">
+  Drops the lock only if the given robot currently holds it.
+</ResponseField>
+
+<ResponseField name="owner(waypointId)" type="string | null">
+  Returns the current owning robot ID, respecting expiry. Returns `null` if the lock is free or expired.
+</ResponseField>
+
+<ResponseField name="occupiedWaypoints(excludeRobotId?)" type="Map<string, string>">
+  Snapshot of all currently valid locks, optionally excluding one robot.
+</ResponseField>
+
+<ResponseField name="reservedSegments(excludeRobotId?)" type="Set<string>">
+  Builds a set of canonical segment keys from every other robot's published path.
+</ResponseField>
+
+<ResponseField name="tick()" type="void">
+  Sweeps expired locks and stale publications. Call on the coordinator cadence (5 Hz).
+</ResponseField>
+
+<ResponseField name="lockCount()" type="number">
+  Number of active waypoint locks.
+</ResponseField>
+
+<ResponseField name="clear()" type="void">
+  Wipes all publications and locks. Called on simulation reset.
+</ResponseField>
+
+### Registry constants
+
+| Constant | Value | Purpose |
+| --- | --- | --- |
+| `LOCK_TTL_MS` | `8000` | Lock expires if not refreshed within 8 seconds. |
+| `PUBLICATION_TTL_MS` | `15000` | Route publication dropped if not republished within 15 seconds. |
+
+## Typical planning call
+
+The simulation loop builds a `PlannerContext` from the live registry, then calls `planRoute` before locking the first waypoint. The pattern below is paraphrased from `buildContext` and `planAndReserve` in `useSimulationLoop.ts`.
+
+```ts
+import { planRoute, PlannerContext } from './engine/routePlanner';
+import { routeRegistry } from './engine/routeRegistry';
+import { snapToWaypoint } from './engine/waypointGraph';
+
+function buildContext(selfId: string): PlannerContext {
+  return {
+    reservedSegments: routeRegistry.reservedSegments(selfId),
+    occupiedWaypoints: routeRegistry.occupiedWaypoints(selfId),
+    selfId,
+  };
+}
+
+function reserveAndPlan(robot: AMR, destId: string): string[] | null {
+  const startId = snapToWaypoint(robot.position.x, robot.position.z);
+  if (!startId) return null;
+
+  const ctx = buildContext(robot.id);
+  const path = planRoute(startId, destId, ctx);
+  if (!path || path.length < 2) return null;
+
+  const nextId = path[1];
+  if (!routeRegistry.lockWaypoint(nextId, robot.id)) return null;
+
+  routeRegistry.publish(robot.id, path, nextId);
+  return path;
+}
+```
+
+`planRoute` never mutates the registry; it only reads `reservedSegments` and `occupiedWaypoints` to compute cost. The caller is responsible for acquiring locks and publishing the chosen path.

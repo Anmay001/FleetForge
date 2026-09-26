@@ -1,0 +1,115 @@
+---
+title: "Developing FleetForge"
+description: "Learn how to set up FleetForge locally, add views and components, modify the coordination engine, and debug the simulation from the browser."
+sidebarTitle: "Development"
+---
+
+FleetForge is a single-page React application with five editable layers: views, components, state stores, simulation hooks, and the pure TypeScript coordination engine. Because there is no backend or build-time configuration, every change is reflected immediately through Vite's HMR.
+
+## Local development
+
+<Steps>
+  <Step title="Clone the repository">
+    ```bash
+    git clone https://github.com/Anmay001/FleetForge.git
+    cd FleetForge
+    ```
+  </Step>
+  <Step title="Install dependencies">
+    ```bash
+    npm install
+    ```
+  </Step>
+  <Step title="Start the dev server">
+    ```bash
+    npm run dev
+    ```
+
+    The app opens at `http://localhost:5173`.
+  </Step>
+  <Step title="(Optional) Run strict type-checking">
+    ```bash
+    npx tsc --noEmit
+    ```
+
+    This is the current quality gate. It must pass before you commit.
+  </Step>
+</Steps>
+
+## Adding a view
+
+FleetForge uses an in-app view switcher rather than a URL router. To add a new view:
+
+1. **Register the view name** in `src/components/common/Sidebar.tsx` by adding your string to the `View` type union:
+   ```ts
+   export type View = 'dashboard' | 'simulation' | 'fleet' | 'tasks'
+                     | 'events' | 'analytics' | 'settings' | 'yourView';
+   ```
+2. **Add a navigation item** inside the `NAV_GROUPS` array so the sidebar shows a button for it.
+3. **Render the view** in `src/App.tsx` inside the `renderView()` function:
+   ```tsx
+   if (view === 'yourView') {
+     return <YourViewComponent />;
+   }
+   ```
+4. **Create the component** under `src/components/<area>/YourViewComponent.tsx`. Keep the file in an existing domain folder (for example, `analytics` or `fleet`) or create a new one if the view is genuinely separate.
+5. **Subscribe to data** with narrow Zustand selectors:
+   ```tsx
+   const robots = useFleetStore((s) => s.robots);
+   ```
+   Avoid selecting the entire store, because that causes a re-render on every state change.
+
+## Adding a component
+
+New UI components should live under `src/components/<area>/` to match the existing domain grouping. Follow these conventions:
+
+- Use the shared tone helpers from `src/components/common/status.ts` for status colours. Import `toneOfStatus`, `TONE_BG`, `TONE_TEXT`, or `TONE_SURFACE` instead of hard-coding colours.
+- Keep the border-radius scale to the tokens defined in `tailwind.config.cjs`: `3px` (default), `4px` (`sm`), `6px` (`md`), and `8px` (`lg`/`xl`/`2xl`). Anything larger is considered a bug.
+- Use the design-system classes declared in `src/index.css` under `@layer components` (for example, `.ff-panel`, `.ff-band`, `.ff-label`, `.ff-control-primary`) so the new piece feels native.
+- Write static Tailwind class strings only. Dynamic class concatenation will be stripped by the purge step.
+
+## Modifying the engine
+
+The coordination engine lives in `src/engine/` and has zero React imports. It is plain TypeScript that operates on data, which makes it easy to unit test outside the browser.
+
+| Module | Responsibility |
+| --- | --- |
+| `waypointGraph.ts` | Builds the adjacency graph from the lane grid and provides `findPath` (BFS) and `snapToWaypoint`. |
+| `routePlanner.ts` | A\* pathfinding with pheromone, reservation, and occupancy penalties. |
+| `routeRegistry.ts` | TTL-based waypoint locks and route publications. |
+| `pheromoneMap.ts` | Deposits and decays congestion signals on graph segments. |
+
+`pheromoneMap` and `routeRegistry` are module singletons. If you change their internal state during a session, you must clear them on simulation reset. The `simulationStartedAt` watcher inside `useSimulationLoop.ts` already does this:
+
+```ts
+if (lastStartRef.current !== store.simulationStartedAt) {
+  lastStartRef.current = store.simulationStartedAt;
+  phasesRef.current.clear();
+  routeRegistry.clear();
+  pheromoneMap.clear();
+}
+```
+
+If you add a new singleton, wire its `.clear()` call into that same block so resets stay consistent.
+
+## Tuning behaviour
+
+Most simulation constants are declared at the top of their respective files. For a consolidated table of tuning knobs (speed, timing, penalties, pheromone rates), see the [Configuration reference](/reference/configuration).
+
+## Debugging tips
+
+- **Inspect state from the console.** Because `useFleetStore` is a Zustand singleton, you can type `useFleetStore.getState()` in the browser DevTools console to read the full live state object. Expand `robots`, `tasks`, or `events` to inspect values at the current tick.
+- **Use the in-app diagnostics.** The event feed and telemetry inspector are the primary debugging surfaces. The feed shows every state transition, route assignment, and timeout. The inspector exposes per-robot position, speed, battery, and current task.
+- **Speed up the simulation.** Set `simulationSpeed` to `2` or `5` in the Task Management view to reproduce coordination edge cases (deadlocks, pheromone pile-ups, or reservation contention) faster than real time.
+- **Check the coordinator counters.** The sidebar polls `routeRegistry.lockCount()` and `routeRegistry.reservedSegments().size` every second. If locks or reserved segments climb unexpectedly while robots are idle, a leak in the release logic is likely.
+
+## Testing
+
+FleetForge does not ship with automated tests today. The strict TypeScript compilation (`npx tsc --noEmit`) is the current quality gate. It enforces:
+
+- `strict: true` (no implicit `any`, strict null checks)
+- `noUnusedLocals` and `noUnusedParameters`
+- `noFallthroughCasesInSwitch`
+- `isolatedModules`
+
+If you want to add unit tests, the `src/engine/` modules are the easiest place to start because they have no React dependency and can be exercised with plain Jest or Vitest.

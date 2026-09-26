@@ -11,7 +11,7 @@
     <img alt="Vite" src="https://img.shields.io/badge/Vite-5.0-646CFF?logo=vite&logoColor=white&style=flat-square" />
   </p>
 
-  <p><i>A browser-based command dashboard for supervising a fleet of AMRs (autonomous mobile robots) inside a warehouse, with a live 3D simulation, a reservation-based route coordination engine, telemetry inspector, task queue, event feed and analytics.</i></p>
+  <p><i>A browser-based command dashboard for supervising a fleet of AMRs (autonomous mobile robots) inside a warehouse, with a live 3D simulation, a reservation-based route coordination engine, telemetry inspector, task queue, event feed and analytics. No backend or API required—everything runs locally in your browser.</i></p>
 
 </div>
 
@@ -20,7 +20,10 @@
 ## 📑 Table of Contents
 
 - [🚀 Getting Started](#-getting-started)
-- [✨ Features](#-features)
+- [✨ Core Features](#-core-features)
+- [🧭 Architecture & State](#-architecture--state)
+- [🧠 HiveMind Coordination Engine](#-hivemind-coordination-engine)
+- [🎨 UI & Design System](#-ui--design-system)
 - [📚 Documentation](#-documentation)
 - [🏗️ Project Structure](#-project-structure)
 - [🛠️ Tech Stack](#️-tech-stack)
@@ -29,15 +32,14 @@
 
 ## 🚀 Getting Started
 
-<details>
+<details open>
 <summary><b>Click to expand Installation & Setup instructions</b></summary>
 <br/>
 
-Get FleetForge running locally in seconds. No environment variables or external services required.
+Get FleetForge running locally in seconds. **No environment variables, no database, no backend.**
 
-- [ ] Ensure you have Node.js 18+ and npm 9+ installed.
-- [ ] Clone the repository or navigate to the project directory.
-- [ ] Run the following commands:
+- [ ] Ensure you have **Node.js 18+** and **npm 9+** installed.
+- [ ] Clone the repository and run the following:
 
 ```bash
 # 1. Install dependencies
@@ -45,9 +47,9 @@ npm install
 
 # 2. Start the development server
 npm run dev
-# The app will be available at http://localhost:5173
+# -> http://localhost:5173
 
-# 3. (Optional) Run type-checking
+# 3. (Optional) Run type-checking in strict mode
 npx tsc --noEmit
 
 # 4. (Optional) Build for production
@@ -58,47 +60,116 @@ npm run preview
 
 ---
 
-## ✨ Features
+## ✨ Core Features
 
 <details>
-<summary><b>Click to explore the core features</b></summary>
+<summary><b>Click to explore the visual and interactive features</b></summary>
 <br/>
 
-### 🗺️ The Seven Views
+### 🗺️ The Seven Unique Views
 | View | Description |
 | --- | --- |
-| **Dashboard** | 11 KPIs, distance-per-robot bars, battery health |
-| **3D Simulation** | KPI strip, command toolbar, live warehouse scene, telemetry rail, event log |
-| **Fleet Management** | Per-robot cards with live status badges |
-| **Task Management** | KPI ribbon + sortable, filterable task queue + sim-speed control |
-| **Event Feed** | Full-height log of simulation events |
-| **Analytics** | KPI grid, distance-per-robot bars, battery health |
-| **Settings** | Theme and preference toggles |
+| **Dashboard** | 11 live KPIs spanning deliveries, utilization, and distance; per-robot distance charts; and battery health indicators. |
+| **3D Simulation** | Live digital twin of the warehouse with KPI strips, a command toolbar, telemetry rails, and an event log overlay. |
+| **Fleet Management** | Individual AMR cards featuring live status badges and deep links to robot state. |
+| **Task Management** | Complete lifecycle management with sortable, filterable queues, a KPI ribbon, and simulation speed controls. Auto-generates tasks every 10–30 seconds. |
+| **Event Feed** | Full-height chronological log for all simulation events, state changes, and task completions. |
+| **Analytics** | Comprehensive KPI grids, distance breakdowns, and battery utilization metrics. |
+| **Settings** | Configuration for UI appearance (Light/Dark themes) and simulation preferences. |
 
-### 🧊 3D Simulation
-- **Environment:** 20 × 20 m warehouse on a 4 m lane grid with racks, charging pads, drop zones, and dynamic obstacles.
-- **AMRs:** 5 robots rendered with chassis, wheels, heading cone, payload box, selection ring, and floating ID labels.
-- **Camera Controls:** Orbit / pan / zoom camera, **Top View** and **3D View** modes, follow-selected-robot.
-- **Interaction:** Click a robot to select it; click empty floor to deselect.
+### 🧊 3D Simulation & Environment
+- **Scale:** 20 × 20 m warehouse mapped on a 4 m lane grid.
+- **Topology:** 13 interconnected waypoints, 8 storage racks (2×4 layout), 2 charging pads, 2 drop zones, and 4 dynamic obstacles.
+- **AMR Digital Twin:** 5 robots precisely rendered with a chassis, wheels, heading cone, payload box, selection rings, and floating ID labels.
+- **Controls:** Fully interactive Orbit / pan / zoom camera. Includes **Top View** and **3D View** toggles, a follow-selected-robot mode, camera resets, and fullscreen mode.
+- **Interaction:** Click an AMR to select it and view its isolated telemetry; click the floor to deselect.
 
-### 🧠 Route Coordination Engine
-- Waypoint graph built from the lane grid.
-- A\* pathfinding with a pheromone cost field, segment reservations, and occupied-waypoint penalties.
-- Reservation registry with TTL waypoint locks, ensuring AMRs never collide.
-- Auto-expiring locks prevent the fleet from stalling in emergencies.
+</details>
 
-### 🤖 Fleet State Machine
+---
+
+## 🧭 Architecture & State
+
+<details>
+<summary><b>Click to dive into the five-layer architecture and data flow</b></summary>
+<br/>
+
+The application is structured into five distinct layers to ensure optimal performance and maintainability:
+
+1. **VIEW (React 19):** `App.tsx` → `AppShell` → Page Components.
+2. **STATE (Zustand):** `useFleetStore` (robots, tasks, events, flags) and `useThemeStore` (light/dark).
+3. **SIMULATION:** `useSimulationLoop` drives a 5 Hz coordinator and a ~30 Hz motion tick. `useTaskGenerator` continuously produces tasks.
+4. **ENGINE:** Pure TypeScript logic operating outside of React (`waypointGraph`, `routePlanner`, `routeRegistry`, `pheromoneMap`).
+5. **SCENE (Three.js/R3F):** High-performance rendering of the `WarehouseScene`, AMRs, lights, and layout.
+
+### Strict Data Flow
+**Single Source of Truth:** Components never mutate robot state directly. The simulation loop is the sole writer during normal execution. Operator commands dispatch explicit actions to `useFleetStore`.
+- React components subscribe to `useFleetStore`.
+- The R3F scene directly reads positions and renders—it writes nothing back to the store.
+
+### Cadence & Timing Model
+| Process | Rate | Description |
+|---|---|---|
+| **Coordinator Tick** | 5 Hz | Picks destinations, plans routes (A*), publishes locks, handles waiting/timeouts. |
+| **Motion Tick** | ~30 Hz | Accelerates/decelerates, integrates kinematics, drains battery based on load. |
+| **Pheromone Decay** | 5 Hz | Evaporates trail congestion at a rate of 8% per second. |
+| **Task Generator** | 10–30 s | Generates randomized tasks if the queue drops below 20. |
+
+</details>
+
+---
+
+## 🧠 HiveMind Coordination Engine
+
+<details>
+<summary><b>Click to uncover the pure-TypeScript autonomous logic</b></summary>
+<br/>
+
+The coordination engine sits at the heart of FleetForge, ensuring collision-free routing without deadlocks. It relies on four major, testable components:
+
+### 1. Waypoint Graph
+Adjacency is derived directly from the lane grid (`LANE_STEP = 4`). It calculates connectivity (13/13 reachable nodes) so robots can seamlessly traverse the warehouse.
+
+### 2. A\* Pathfinding Planner
+An A* planner dynamically avoids congestion. The cost to travel an edge factors in distance, active pheromones, reserved segments, and occupied nodes:
 ```text
-IDLE → MOVING → ALIGNING → PICKING_UP → CARRYING → DROPPING → IDLE
-                  ↘ WAITING          ↘ CHARGING   ↘ OBSTACLE
+edgeCost = distance * (1 + pheromone * 6.0) 
+         + 100 (if segment reserved) 
+         + 50 (if waypoint occupied)
 ```
-- Real-time motion loop (~30 Hz) with acceleration / deceleration, battery drain, and distance tracking.
-- Interactive operator commands: Stop, Pause, Resume, Reroute, Charge, global Emergency Stop.
+The Euclidean heuristic remains admissible, making the planner eager to detour around heavy traffic.
 
-### 🎨 UI & Design
-- Beautiful Light and Dark modes with a semantic color palette.
-- Design system driven by Tailwind CSS and custom tokens.
-- Fully responsive sidebar and HUD-style overlays.
+### 3. Pheromone Cost Field (Ant-Colony Inspired)
+Robots deposit "pheromones" as they move. The field naturally decays (8% per second). Both travel directions share the same field map, naturally dispersing traffic over time instead of robots piling up in the same corridor.
+
+### 4. Reservation Registry & Auto-Expiry
+Robots lock waypoints to guarantee exclusive access. 
+- **Time-to-Live (TTL):** Unrefreshed locks expire after 8,000ms. Unrepublished routes drop after 15,000ms.
+- **Emergency Liveness:** If an AMR hits an Emergency Stop, its locks expire, and the rest of the fleet routes around it automatically—preventing total system gridlock.
+
+### Simulation State Machine
+```text
+IDLE ──task──▶ MOVING ──arrive──▶ ALIGNING ──▶ PICKING_UP ──▶ MOVING
+                  │                                          │
+                  │ (blocked > 6 s)                          ▼
+                  ▼                                       DROPPING ──▶ IDLE
+               WAITING ── grant / timeout ─▶ MOVING
+```
+
+</details>
+
+---
+
+## 🎨 UI & Design System
+
+<details>
+<summary><b>Click to see how the dashboard is styled</b></summary>
+<br/>
+
+- **Thematic Consistency:** Deeply integrated Light and Dark modes. The theme store simultaneously updates Tailwind CSS classes and the Three.js scene environment maps.
+- **Design Tokens:** Strict `3/4/6/8 px` border-radius scale enforced throughout all components.
+- **Responsiveness:** A collapsing sidebar, fluid KPI grids, and HUD-style graphical overlays ensure the dashboard works across screen sizes.
+- **Semantic Colors:** A single tone map (`status.ts`) synchronizes standard colors (e.g., Idle=Blue, Moving=Green, Error=Red) across DOM elements and 3D materials.
 
 </details>
 
@@ -106,7 +177,7 @@ IDLE → MOVING → ALIGNING → PICKING_UP → CARRYING → DROPPING → IDLE
 
 ## 📚 Documentation
 
-<details open>
+<details>
 <summary><b>Comprehensive guides and technical deep-dives</b></summary>
 <br/>
 

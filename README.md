@@ -149,6 +149,7 @@ IDLE ──task──▶ MOVING ──arrive──▶ ALIGNING ──▶ PICKING
 ## 📚 Documentation
 
 **[DOCUMENTATION.md](DOCUMENTATION.md)** is the consolidated reference for the entire project.
+📚 **[Read the full documentation →](https://anmay-ballarpure.mintlify.app)**
 
 Modular documentation is available in the `docs/` folder:
 

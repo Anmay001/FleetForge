@@ -32,10 +32,6 @@
 
 ## 🚀 Getting Started
 
-<details open>
-<summary><b>Click to expand Installation & Setup instructions</b></summary>
-<br/>
-
 Get FleetForge running locally in seconds. **No environment variables, no database, no backend.**
 
 - [ ] Ensure you have **Node.js 18+** and **npm 9+** installed.
@@ -56,15 +52,10 @@ npx tsc --noEmit
 npm run build
 npm run preview
 ```
-</details>
 
 ---
 
 ## ✨ Core Features
-
-<details>
-<summary><b>Click to explore the visual and interactive features</b></summary>
-<br/>
 
 ### 🗺️ The Seven Unique Views
 | View | Description |
@@ -84,15 +75,9 @@ npm run preview
 - **Controls:** Fully interactive Orbit / pan / zoom camera. Includes **Top View** and **3D View** toggles, a follow-selected-robot mode, camera resets, and fullscreen mode.
 - **Interaction:** Click an AMR to select it and view its isolated telemetry; click the floor to deselect.
 
-</details>
-
 ---
 
 ## 🧭 Architecture & State
-
-<details>
-<summary><b>Click to dive into the five-layer architecture and data flow</b></summary>
-<br/>
 
 The application is structured into five distinct layers to ensure optimal performance and maintainability:
 
@@ -115,15 +100,9 @@ The application is structured into five distinct layers to ensure optimal perfor
 | **Pheromone Decay** | 5 Hz | Evaporates trail congestion at a rate of 8% per second. |
 | **Task Generator** | 10–30 s | Generates randomized tasks if the queue drops below 20. |
 
-</details>
-
 ---
 
 ## 🧠 HiveMind Coordination Engine
-
-<details>
-<summary><b>Click to uncover the pure-TypeScript autonomous logic</b></summary>
-<br/>
 
 The coordination engine sits at the heart of FleetForge, ensuring collision-free routing without deadlocks. It relies on four major, testable components:
 
@@ -156,30 +135,18 @@ IDLE ──task──▶ MOVING ──arrive──▶ ALIGNING ──▶ PICKING
                WAITING ── grant / timeout ─▶ MOVING
 ```
 
-</details>
-
 ---
 
 ## 🎨 UI & Design System
-
-<details>
-<summary><b>Click to see how the dashboard is styled</b></summary>
-<br/>
 
 - **Thematic Consistency:** Deeply integrated Light and Dark modes. The theme store simultaneously updates Tailwind CSS classes and the Three.js scene environment maps.
 - **Design Tokens:** Strict `3/4/6/8 px` border-radius scale enforced throughout all components.
 - **Responsiveness:** A collapsing sidebar, fluid KPI grids, and HUD-style graphical overlays ensure the dashboard works across screen sizes.
 - **Semantic Colors:** A single tone map (`status.ts`) synchronizes standard colors (e.g., Idle=Blue, Moving=Green, Error=Red) across DOM elements and 3D materials.
 
-</details>
-
 ---
 
 ## 📚 Documentation
-
-<details>
-<summary><b>Comprehensive guides and technical deep-dives</b></summary>
-<br/>
 
 **[DOCUMENTATION.md](DOCUMENTATION.md)** is the consolidated reference for the entire project.
 
@@ -195,15 +162,9 @@ Modular documentation is available in the `docs/` folder:
 - ⚡ **[Performance](docs/performance.md)** — Bundle size and runtime budgets.
 - 💡 **[Use Cases](docs/use-cases.md)** — Real-world application benefits and limitations.
 
-</details>
-
 ---
 
 ## 🏗️ Project Structure
-
-<details>
-<summary><b>Click to view source code organization</b></summary>
-<br/>
 
 ```text
 src/
@@ -224,15 +185,9 @@ src/
 └── types/                   # TypeScript Interfaces and Types
 ```
 
-</details>
-
 ---
 
 ## 🛠️ Tech Stack
-
-<details>
-<summary><b>Click to expand technology stack details</b></summary>
-<br/>
 
 Everything runs entirely in the browser using the latest modern web technologies:
 
@@ -242,8 +197,6 @@ Everything runs entirely in the browser using the latest modern web technologies
 - **State Management:** [Zustand](https://github.com/pmndrs/zustand)
 - **3D Rendering:** [Three.js](https://threejs.org/) with [React Three Fiber](https://docs.pmnd.rs/react-three-fiber/) and [Drei](https://github.com/pmndrs/drei)
 - **Icons & Typography:** [Lucide React](https://lucide.dev/) and [Inter Font](https://rsms.me/inter/)
-
-</details>
 
 ---
 <p align="center">Built for <b>Smart India Hackathon 2026</b></p>

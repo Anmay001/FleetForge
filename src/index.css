@@ -1,0 +1,185 @@
+@import '@fontsource-variable/inter';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+:root.dark {
+  color-scheme: dark;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply font-sans antialiased;
+  background: #f8fafc;
+  color: #0f172a;
+  margin: 0;
+}
+
+.dark body {
+  background: #020617;
+  color: #e2e8f0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+.dark ::-webkit-scrollbar-thumb { background: #334155; }
+.dark ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+/* Data + numbers are always tabular so columns never jitter */
+.font-mono {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ==========================================================================
+   DESIGN SYSTEM
+   Radius: 3 / 4 / 6 / 8 (see tailwind.config.cjs)
+   Elevation: hairline borders by default; shadow only for overlays
+   Uppercase: categories, system labels, compact metadata — nothing else
+   ========================================================================== */
+@layer components {
+
+  /* ---- Surfaces ---------------------------------------------------- */
+
+  /* A framed tool or repeated item */
+  .ff-panel {
+    @apply bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg;
+  }
+
+  /* A full-bleed band inside the workspace (toolbar, KPI rail) */
+  .ff-band {
+    @apply bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800;
+  }
+
+  /* Hairline divider */
+  .ff-rule {
+    @apply border-slate-200 dark:border-slate-800;
+  }
+
+  /* ---- Typography -------------------------------------------------- */
+
+  /* Category / system label. The only uppercase style in the product. */
+  .ff-label {
+    @apply text-[10px] font-semibold uppercase tracking-label text-slate-500 dark:text-slate-400;
+  }
+
+  /* Section heading inside a panel */
+  .ff-heading {
+    @apply text-[13px] font-semibold text-slate-900 dark:text-white;
+  }
+
+  /* Field label — normal case, operator-readable */
+  .ff-field-label {
+    @apply text-xs text-slate-500 dark:text-slate-400;
+  }
+
+  /* Machine value */
+  .ff-data {
+    @apply font-mono text-xs text-slate-900 dark:text-white text-right;
+  }
+
+  /* Secondary line under a metric */
+  .ff-sub {
+    @apply text-[11px] text-slate-500 dark:text-slate-400 truncate;
+  }
+
+  /* ---- Controls ---------------------------------------------------- */
+
+  .ff-control {
+    @apply inline-flex items-center justify-center gap-1.5 h-8 px-2.5
+           rounded text-xs font-medium select-none transition-colors
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40
+           disabled:opacity-40 disabled:cursor-not-allowed;
+  }
+
+  /* Primary — one per group, never more */
+  .ff-control-primary {
+    @apply bg-emerald-600 text-white border border-emerald-700
+           hover:bg-emerald-700;
+  }
+
+  .ff-control-neutral {
+    @apply bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700
+           text-slate-700 dark:text-slate-200
+           hover:bg-slate-50 dark:hover:bg-slate-700;
+  }
+
+  /* Tertiary / tool button */
+  .ff-control-quiet {
+    @apply border border-transparent text-slate-500 dark:text-slate-400
+           hover:bg-slate-100 dark:hover:bg-slate-800
+           hover:text-slate-900 dark:hover:text-white;
+  }
+
+  .ff-control-warn {
+    @apply bg-amber-50/70 dark:bg-amber-500/10 border border-amber-300 dark:border-amber-500/40
+           text-amber-800 dark:text-amber-400
+           hover:bg-amber-100 dark:hover:bg-amber-500/20;
+  }
+
+  .ff-control-danger {
+    @apply bg-white dark:bg-slate-900 border border-red-300 dark:border-red-500/50
+           text-red-600 dark:text-red-400
+           hover:bg-red-50 dark:hover:bg-red-500/10;
+  }
+
+  .ff-control-danger-active {
+    @apply bg-red-600 border border-red-700 text-white hover:bg-red-700;
+  }
+
+  /* Icon-only tool button */
+  .ff-icon-btn {
+    @apply inline-flex items-center justify-center h-8 w-8 rounded
+           text-slate-500 dark:text-slate-400 transition-colors
+           hover:bg-slate-100 dark:hover:bg-slate-800
+           hover:text-slate-900 dark:hover:text-white
+           focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500/40;
+  }
+
+  /* Segmented control — view modes, filters, speed */
+  .ff-seg {
+    @apply inline-flex items-center gap-0.5 p-0.5 rounded
+           bg-slate-100 dark:bg-slate-800
+           border border-slate-200 dark:border-slate-700;
+  }
+
+  .ff-seg-item {
+    @apply h-7 px-2.5 rounded text-[11px] font-medium transition-colors
+           text-slate-500 dark:text-slate-400
+           hover:text-slate-900 dark:hover:text-white;
+  }
+
+  .ff-seg-item-active {
+    @apply bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm;
+  }
+
+  /* ---- Data presentation ------------------------------------------ */
+
+  /* Tracked meter (battery, distance) — no rounded-full pills */
+  .ff-meter {
+    @apply h-1.5 w-full overflow-hidden rounded-sm
+           bg-slate-100 dark:bg-slate-800;
+  }
+
+  .ff-meter-fill {
+    @apply h-full transition-all duration-500;
+  }
+
+  /* Status: dot + normal-case word. Never a pill. */
+  .ff-status {
+    @apply inline-flex items-center gap-1.5 text-[11px] font-medium whitespace-nowrap;
+  }
+
+  .ff-status-dot {
+    @apply w-1.5 h-1.5 rounded-full flex-shrink-0;
+  }
+}

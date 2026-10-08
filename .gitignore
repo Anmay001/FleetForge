@@ -26,3 +26,7 @@ npm-debug.log*
 *.sqlite
 *.sqlite3
 *.db
+
+# Backend runtime data
+packages/backend/data/
+*.db-journal

@@ -4,6 +4,8 @@ import { CommandBody } from '../schemas/api.schemas.js';
 import { parseBody } from '../plugins/validate.js';
 import { dispatchCommand } from '../services/commandService.js';
 import { zodToOpenApi } from '../plugins/openapi.js';
+import { broadcastCommandResult } from '../services/broadcaster.js';
+import { broadcastFleetNow } from '../services/snapshotBroadcaster.js';
 
 export async function registerCommandsRoutes(
   app: FastifyInstance
@@ -35,6 +37,16 @@ export async function registerCommandsRoutes(
         },
       });
     }
+
+    // Broadcast the result + push a fresh fleet snapshot so
+    // subscribed clients see the change immediately.
+    broadcastCommandResult({
+      accepted: result.accepted,
+      robotId: result.robotId,
+      command: result.command,
+      message: result.message,
+    });
+    broadcastFleetNow();
 
     return {
       ok: true,

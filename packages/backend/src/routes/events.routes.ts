@@ -9,6 +9,7 @@ import {
 } from '../schemas/api.schemas.js';
 import { parseBody, parseQuery } from '../plugins/validate.js';
 import { zodToOpenApi } from '../plugins/openapi.js';
+import { broadcastEvent, broadcastEvents } from '../services/broadcaster.js';
 
 const PruneEventsBody = z.object({
   keepLast: z.number().int().min(1).max(100_000).optional(),
@@ -107,6 +108,11 @@ export async function registerEventsRoutes(
         })
       );
       eventsRepo.appendEvents(inserts);
+
+      // Fetch the recently inserted events to broadcast them
+      const recent = eventsRepo.findEvents({ limit: inserts.length });
+      broadcastEvents(recent);
+
       return reply.code(201).send({
         ok: true,
         data: { created: inserts.length },
@@ -114,7 +120,7 @@ export async function registerEventsRoutes(
     }
 
     const single = parseBody(CreateEventBody, request);
-    eventsRepo.appendEvent(
+    const created = eventsRepo.appendEvent(
       eventsRepo.simulationEventToInsert({
         id: '0',
         robotId: single.robotId,
@@ -123,6 +129,7 @@ export async function registerEventsRoutes(
         timestamp: new Date().toISOString(),
       })
     );
+    broadcastEvent(created);
     return reply.code(201).send({
       ok: true,
       data: { created: 1 },

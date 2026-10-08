@@ -11,6 +11,7 @@ import { registerEventsRoutes } from './routes/events.routes.js';
 import { registerCommandsRoutes } from './routes/commands.routes.js';
 import { handleConnection, startHeartbeat } from './websocket/handlers.js';
 import { wsHub } from './websocket/hub.js';
+import { startSnapshotBroadcaster } from './services/snapshotBroadcaster.js';
 import type { HealthCheckResponse } from '@fleetforge/shared';
 
 /**
@@ -186,12 +187,20 @@ async function start(): Promise<void> {
   };
 
   const stopHeartbeat = startHeartbeat();
+  const stopBroadcaster = startSnapshotBroadcaster((info) => {
+    app.log.debug(
+      { clients: info.clients, robots: info.robots },
+      'fleet broadcast'
+    );
+  });
   process.on('SIGTERM', () => {
     stopHeartbeat();
+    stopBroadcaster();
     void shutdown('SIGTERM');
   });
   process.on('SIGINT', () => {
     stopHeartbeat();
+    stopBroadcaster();
     void shutdown('SIGINT');
   });
 

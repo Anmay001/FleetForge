@@ -15,6 +15,7 @@ import {
   parseQuery,
 } from '../plugins/validate.js';
 import { zodToOpenApi } from '../plugins/openapi.js';
+import { broadcastTask } from '../services/broadcaster.js';
 
 const AssignTaskBody = z.object({
   robotId: z.string().min(1).max(64),
@@ -153,6 +154,8 @@ export async function registerTasksRoutes(
       createdAt: new Date(now),
     });
 
+    broadcastTask(row);
+
     return reply.code(201).send({
       ok: true,
       data: { task: tasksRepo.rowToWarehouseTask(row) },
@@ -204,6 +207,8 @@ export async function registerTasksRoutes(
         },
       });
     }
+
+    broadcastTask(updated);
 
     return {
       ok: true,
@@ -267,6 +272,8 @@ export async function registerTasksRoutes(
         },
       });
     }
+
+    broadcastTask(updated);
 
     return {
       ok: true,

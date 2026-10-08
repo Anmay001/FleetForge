@@ -258,3 +258,48 @@ Real-time streaming is provided by `@fastify/websocket` on `/ws`.
 **Not in Stage B5:** persistence of subscriptions across reconnects. Clients must re-subscribe on reconnect.
 
 See `docs/WEBSOCKET.md` for the full protocol reference.
+
+---
+
+## Maintenance Services (Stage B6)
+
+Two background timers keep the database healthy during long
+running sessions.
+
+### Event Pruner (`services/eventPruner.ts`)
+
+- Runs every 60 s (`PRUNE_INTERVAL_MS`)
+- Calls `pruneOnce()` which keeps the most recent `EVENT_LOG_LIMIT`
+  events (default 500)
+- Prevents unbounded growth of the `events` table
+
+### WAL Checkpoint (`services/eventPruner.ts`)
+
+- Runs every 120 s (`CHECKPOINT_INTERVAL_MS`)
+- Calls `sqlite.pragma('wal_checkpoint(TRUNCATE)')`
+- Folds the write-ahead log back into the main DB file
+- Without this, the `-wal` file grows linearly with write volume
+
+### Startup Prune
+
+On server boot, `buildServer()` runs `pruneOnce()` once before
+CORS registration. This cleans up state from a previous crashed
+run before the server starts serving traffic.
+
+### Stats for Health (`services/dbStats.ts`)
+
+`/healthz` now reports a `db` object:
+
+```json
+{
+  "db": {
+    "path": "/app/data/fleetforge.db",
+    "sizeBytes": 245760,
+    "walSizeBytes": 32768,
+    "robots": 5,
+    "tasks": 47,
+    "events": 500,
+    "lastEventAt": "2026-10-08T14:23:11.542Z"
+  }
+}
+```

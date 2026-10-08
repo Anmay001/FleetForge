@@ -1,10 +1,7 @@
 import { useState } from 'react';
 import { Play, Pause, RotateCcw, Plus, Maximize, Map as MapIcon, Box, Crosshair } from 'lucide-react';
 import { useFleetStore } from '../../store/useFleetStore';
-import { AMR, Obstacle } from '../../types/fleet';
-import {
-  LANES, RACKS, CHARGING_PADS, DROP_ZONES, isOnLane,
-} from '../../data/warehouseLayout';
+import { AMR, Obstacle, LANES, RACKS, CHARGING_PADS, DROP_ZONES, isOnLane } from '@fleetforge/shared';
 import { GRID_SIZE } from './three/constants';
 
 /**

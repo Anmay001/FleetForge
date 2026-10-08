@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { RACKS } from '../../../data/warehouseLayout';
+import { RACKS } from '@fleetforge/shared';
 import { ScenePalette } from './constants';
 
 export interface WarehouseRacksProps {

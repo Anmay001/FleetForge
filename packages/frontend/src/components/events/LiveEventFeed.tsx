@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronUp, ScrollText } from 'lucide-react';
 import { useFleetStore } from '../../store/useFleetStore';
-import { SimulationEvent } from '../../types/fleet';
+import { SimulationEvent } from '@fleetforge/shared';
 import { TONE_HEX, Tone, toneOfStatus } from '../common/status';
 
 export interface LiveEventFeedProps {

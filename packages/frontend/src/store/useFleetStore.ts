@@ -1,8 +1,7 @@
 import { create } from 'zustand';
-import { AMR, Obstacle, SimulationEvent, WarehouseTask } from '../types/fleet';
+import { AMR, Obstacle, SimulationEvent, WarehouseTask, OBSTACLES } from '@fleetforge/shared';
 import { initialFleet } from '../data/mockFleet';
 import { initialTasks } from '../data/mockTasks';
-import { OBSTACLES } from '../data/warehouseLayout';
 
 interface FleetState {
   robots: AMR[];

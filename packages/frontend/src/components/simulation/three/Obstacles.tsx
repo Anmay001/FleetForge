@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 import { useFleetStore } from '../../../store/useFleetStore';
-import { Obstacle } from '../../../types/fleet';
+import { Obstacle } from '@fleetforge/shared';
 import { ScenePalette } from './constants';
 
 export interface ObstaclesProps {

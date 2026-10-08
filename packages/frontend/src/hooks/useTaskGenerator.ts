@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useFleetStore } from '../store/useFleetStore';
-import { WAYPOINTS, DROP_ZONES } from '../data/warehouseLayout';
+import { WAYPOINTS, DROP_ZONES } from '@fleetforge/shared';
 
 const MIN_INTERVAL_MS = 10_000;
 const MAX_INTERVAL_MS = 30_000;

@@ -1,4 +1,4 @@
-import { WarehouseTask } from '../types/fleet';
+import { WarehouseTask } from '@fleetforge/shared';
 
 export const initialTasks: WarehouseTask[] = [
   {

@@ -3,8 +3,7 @@ import {
   LayoutDashboard, Boxes, Truck, ClipboardList, Zap, BarChart3, Settings
 } from 'lucide-react';
 import { useFleetStore } from '../../store/useFleetStore';
-import { routeRegistry } from '../../engine/routeRegistry';
-import { WAYPOINT_GRAPH } from '../../engine/waypointGraph';
+import { routeRegistry, WAYPOINT_GRAPH } from '@fleetforge/shared';
 import { TONE_BG, TONE_TEXT } from './status';
 
 export type View = 'dashboard' | 'simulation' | 'fleet' | 'tasks'

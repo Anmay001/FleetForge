@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 import { useFleetStore } from '../../store/useFleetStore';
-import { WAYPOINTS, DROP_ZONES } from '../../data/warehouseLayout';
+import { WAYPOINTS, DROP_ZONES } from '@fleetforge/shared';
 
 export interface NewTaskModalProps {
   isOpen: boolean;

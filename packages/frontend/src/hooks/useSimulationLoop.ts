@@ -1,13 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { useFleetStore } from '../store/useFleetStore';
-import { AMR } from '../types/fleet';
 import {
-  WAYPOINTS, CHARGING_PADS, DROP_ZONES,
-} from '../data/warehouseLayout';
-import { WAYPOINT_GRAPH, snapToWaypoint } from '../engine/waypointGraph';
-import { planRoute, PlannerContext } from '../engine/routePlanner';
-import { pheromoneMap } from '../engine/pheromoneMap';
-import { routeRegistry } from '../engine/routeRegistry';
+  AMR,
+  WAYPOINTS,
+  CHARGING_PADS,
+  DROP_ZONES,
+  WAYPOINT_GRAPH,
+  snapToWaypoint,
+  planRoute,
+  PlannerContext,
+  pheromoneMap,
+  routeRegistry,
+} from '@fleetforge/shared';
 
 const WAYPOINT_MAP: Record<string, { x: number; z: number }> =
   Object.fromEntries(WAYPOINTS.map((w) => [w.id, { x: w.x, z: w.z }]));

@@ -4,7 +4,7 @@ import { Html } from '@react-three/drei';
 import * as THREE from 'three';
 import { useFleetStore } from '../../../store/useFleetStore';
 import { ScenePalette } from './constants';
-import { AMR } from '../../../types/fleet';
+import { AMR } from '@fleetforge/shared';
 import {
   TONE_HEX, needsAttention, statusLabel, toneOfStatus,
 } from '../../common/status';

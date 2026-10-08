@@ -1,9 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
 import { Edges } from '@react-three/drei';
-import {
-  CHARGING_PADS, DROP_ZONES, LANES, WAYPOINTS,
-} from '../../../data/warehouseLayout';
+import { CHARGING_PADS, DROP_ZONES, LANES, WAYPOINTS } from '@fleetforge/shared';
 import { GRID_SIZE, ScenePalette } from './constants';
 
 export interface WarehouseFloorProps {

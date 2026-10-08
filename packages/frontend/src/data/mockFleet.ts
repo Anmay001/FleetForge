@@ -1,4 +1,4 @@
-import { AMR } from '../types/fleet';
+import { AMR } from '@fleetforge/shared';
 
 export const initialFleet: AMR[] = [
   {

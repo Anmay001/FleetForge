@@ -9,6 +9,8 @@ import { registerFleetRoutes } from './routes/fleet.routes.js';
 import { registerTasksRoutes } from './routes/tasks.routes.js';
 import { registerEventsRoutes } from './routes/events.routes.js';
 import { registerCommandsRoutes } from './routes/commands.routes.js';
+import { handleConnection, startHeartbeat } from './websocket/handlers.js';
+import { wsHub } from './websocket/hub.js';
 import type { HealthCheckResponse } from '@fleetforge/shared';
 
 /**
@@ -51,6 +53,15 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   });
 
+  // --- WebSocket route ---
+  app.get(
+    '/ws',
+    { websocket: true },
+    (socket, request) => {
+      handleConnection(socket, request);
+    }
+  );
+
   // --- OpenAPI ---
   await registerOpenApi(app);
 
@@ -79,6 +90,7 @@ export async function buildServer(): Promise<FastifyInstance> {
               type: 'object',
               properties: {
                 database: { type: 'string', enum: ['ok', 'failed'] },
+                websocket: { type: 'string' },
               },
             },
           },
@@ -96,6 +108,7 @@ export async function buildServer(): Promise<FastifyInstance> {
       timestamp: new Date().toISOString(),
       checks: {
         database: dbHealthy ? 'ok' : 'failed',
+        websocket: `${wsHub.getClientCount()} clients`,
       },
     };
   });
@@ -108,6 +121,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     endpoints: {
       docs: '/api/docs',
       health: '/healthz',
+      websocket: '/ws (WebSocket)',
       fleet: {
         list: 'GET /api/fleet',
         detail: 'GET /api/fleet/:id',
@@ -145,6 +159,11 @@ export async function buildServer(): Promise<FastifyInstance> {
   // --- Global error handler (Zod-aware) ---
   registerErrorHandler(app);
 
+  // --- WebSocket cleanup on server close ---
+  app.addHook('onClose', async () => {
+    wsHub.closeAll();
+  });
+
   return app;
 }
 
@@ -166,8 +185,15 @@ async function start(): Promise<void> {
     }
   };
 
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
+  const stopHeartbeat = startHeartbeat();
+  process.on('SIGTERM', () => {
+    stopHeartbeat();
+    void shutdown('SIGTERM');
+  });
+  process.on('SIGINT', () => {
+    stopHeartbeat();
+    void shutdown('SIGINT');
+  });
 
   try {
     await app.listen({ port: config.port, host: config.host });

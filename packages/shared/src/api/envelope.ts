@@ -48,6 +48,7 @@ export interface HealthCheckResponse {
   timestamp: string;
   checks: {
     database: 'ok' | 'failed';
+    websocket?: string;
   };
 }
 

@@ -93,7 +93,7 @@ export function planRoute(
       let node: string | null = current;
       while (node !== null) {
         path.unshift(node);
-        node = cameFrom[node];
+        node = cameFrom[node] ?? null;
       }
       return path;
     }

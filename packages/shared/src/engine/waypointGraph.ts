@@ -74,7 +74,7 @@ export const WAYPOINT_GRAPH: Record<string, GraphNode> = (() => {
       if (a.id === b.id) continue;
       if (!areAligned(a, b)) continue;
       if (hasWaypointBetween(a, b)) continue;
-      graph[a.id].neighbors.push(b.id);
+      graph[a.id]!.neighbors.push(b.id);
     }
   }
 
@@ -103,11 +103,11 @@ export function findPath(
       let node: string | null = goalId;
       while (node !== null) {
         path.unshift(node);
-        node = cameFrom[node];
+        node = cameFrom[node] ?? null;
       }
       return path;
     }
-    for (const neighbor of WAYPOINT_GRAPH[current].neighbors) {
+    for (const neighbor of WAYPOINT_GRAPH[current]!.neighbors) {
       if (!(neighbor in cameFrom)) {
         cameFrom[neighbor] = current;
         queue.push(neighbor);

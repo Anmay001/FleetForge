@@ -1,5 +1,6 @@
 export * from './types/fleet';
 export * from './data/warehouseLayout';
+export * from './data/mockData';
 export * from './engine/pheromoneMap';
 export * from './engine/routePlanner';
 export * from './engine/routeRegistry';

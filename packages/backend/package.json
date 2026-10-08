@@ -13,7 +13,11 @@
     "test:watch": "vitest",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:migrate": "drizzle-kit migrate",
+    "db:seed": "tsx src/db/seed.ts",
+    "db:reset": "tsx src/db/reset.ts",
+    "db:reset:seed": "tsx src/db/reset.ts --seed"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

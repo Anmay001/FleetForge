@@ -170,3 +170,61 @@ TTLs guarantee liveness: if a robot crashes or is e-stopped mid-route, its locks
 | Layout constants | `src/data/warehouseLayout.ts` |
 | Domain types | `src/types/fleet.ts` |
 | Design system | `src/index.css` |
+
+---
+
+## Database (Stage B3)
+
+SQLite via better-sqlite3 + Drizzle ORM.
+
+**Three tables:**
+- `robots` — current AMR snapshot (5 rows in the fleet)
+- `tasks` — pick-and-drop task queue
+- `events` — append-only state change log
+
+**Migration workflow:**
+- `npm run db:generate` — regenerate SQL from schema.ts (commit to git)
+- Migrations run automatically on server boot via runMigrations()
+- `npm run db:push` — **development shortcut only.** Do NOT use in production — it modifies the DB without populating the migration tracking table, breaking subsequent `runMigrations()` calls.
+- `npm run db:migrate` — apply pending migrations without booting the server
+
+**Reset and seed:**
+- `npm run db:reset` — delete the SQLite file and re-run migrations
+- `npm run db:reset:seed` — reset + populate initial fleet
+- `npm run db:seed` — upsert initial fleet (idempotent)
+
+**File location:**
+- Dev: `packages/backend/data/fleetforge.db` (gitignored)
+- Tests: `:memory:` (no file, isolated per test run)
+- Production: `DATABASE_URL` env var, defaults to `./data/fleetforge.db`
+
+**Type mapping:**
+- Rows are stored with snake_case column names
+- Repositories expose `rowToX` and `xToInsert` mappers to bridge to the shared `AMR`/`WarehouseTask`/`SimulationEvent` types
+- Never return raw DB rows from routes — always map through the repository helpers
+
+### Backend Structure (Stage B3)
+
+```
+packages/backend/
+├── src/
+│   ├── config.ts              # Zod-validated env config
+│   ├── server.ts              # Fastify bootstrap + health
+│   ├── db/
+│   │   ├── schema.ts          # Drizzle tables (robots, tasks, events)
+│   │   ├── client.ts          # Lazy DB connection, migrations
+│   │   ├── index.ts           # Barrel exports
+│   │   ├── seed.ts            # Idempotent fleet seed
+│   │   └── reset.ts           # Destructive DB reset
+│   ├── repositories/
+│   │   ├── robots.repo.ts     # CRUD + bulk upsert + mappers
+│   │   ├── tasks.repo.ts      # Filtered queries + status updates
+│   │   ├── events.repo.ts     # Append-only log + pruning
+│   │   └── index.ts           # Barrel export
+│   └── db/
+└── tests/
+    ├── setup.ts               # Test env vars
+    ├── global-setup.ts        # In-memory DB env
+    ├── health.test.ts         # /healthz smoke tests
+    └── repositories.test.ts   # Repository CRUD tests
+```

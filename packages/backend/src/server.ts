@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
+import { runMigrations, closeDb, isDbHealthy } from './db/index.js';
 
 /**
  * Build the Fastify instance without starting it. Useful for tests
@@ -26,6 +27,9 @@ export async function buildServer(): Promise<FastifyInstance> {
     trustProxy: true,
   });
 
+  // --- Run migrations on boot ---
+  runMigrations();
+
   // --- CORS ---
   await app.register(cors, {
     origin: config.corsOrigins,
@@ -41,14 +45,20 @@ export async function buildServer(): Promise<FastifyInstance> {
   });
 
   // --- Health check ---
-  app.get('/healthz', async () => ({
-    status: 'ok',
-    service: 'fleetforge-backend',
-    version: '1.0.0',
-    env: config.nodeEnv,
-    uptime: process.uptime(),
-    timestamp: new Date().toISOString(),
-  }));
+  app.get('/healthz', async () => {
+    const dbHealthy = isDbHealthy();
+    return {
+      status: dbHealthy ? 'ok' : 'degraded',
+      service: 'fleetforge-backend',
+      version: '1.0.0',
+      env: config.nodeEnv,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+      checks: {
+        database: dbHealthy ? 'ok' : 'failed',
+      },
+    };
+  });
 
   // --- Root discovery endpoint ---
   app.get('/', async () => ({
@@ -99,6 +109,7 @@ async function start(): Promise<void> {
 
   const shutdown = async (signal: string): Promise<void> => {
     app.log.info({ signal }, 'Shutting down gracefully');
+    closeDb();
     try {
       await app.close();
       process.exit(0);

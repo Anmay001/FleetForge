@@ -81,13 +81,16 @@ export function snapToLaneIntersection(x: number, z: number): {
   x: number;
   z: number;
 } {
-  const nearestX = LANES.x.reduce(
-    (best, lx) => (Math.abs(lx - x) < Math.abs(best - x) ? lx : best),
-    LANES.x[0]
-  );
-  const nearestZ = LANES.z.reduce(
-    (best, lz) => (Math.abs(lz - z) < Math.abs(best - z) ? lz : best),
-    LANES.z[0]
-  );
+  const lanesX = LANES.x;
+  const lanesZ = LANES.z;
+  // LANES arrays are known to be non-empty at runtime
+  let nearestX: number = lanesX[0]!;
+  for (const lx of lanesX) {
+    if (Math.abs(lx - x) < Math.abs(nearestX - x)) nearestX = lx;
+  }
+  let nearestZ: number = lanesZ[0]!;
+  for (const lz of lanesZ) {
+    if (Math.abs(lz - z) < Math.abs(nearestZ - z)) nearestZ = lz;
+  }
   return { x: nearestX, z: nearestZ };
 }

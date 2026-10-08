@@ -111,7 +111,9 @@ class RouteRegistry {
     for (const pub of this.publications.values()) {
       if (excludeRobotId && pub.robotId === excludeRobotId) continue;
       for (let i = 0; i < pub.path.length - 1; i++) {
-        result.add(segmentKey(pub.path[i], pub.path[i + 1]));
+        const a = pub.path[i];
+        const b = pub.path[i + 1];
+        if (a && b) result.add(segmentKey(a, b));
       }
     }
     return result;

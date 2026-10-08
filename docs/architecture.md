@@ -228,3 +228,33 @@ packages/backend/
     ├── health.test.ts         # /healthz smoke tests
     └── repositories.test.ts   # Repository CRUD tests
 ```
+
+---
+
+## WebSocket Layer (Stage B5)
+
+Real-time streaming is provided by `@fastify/websocket` on `/ws`.
+
+**Files:**
+- `packages/shared/src/api/ws.ts` — protocol types (ClientMessage, ServerMessage, WsTopic)
+- `packages/backend/src/websocket/hub.ts` — connection registry + broadcast
+- `packages/backend/src/websocket/handlers.ts` — Fastify wiring
+- `packages/backend/src/services/broadcaster.ts` — row → wire payload mappers + broadcast wrappers
+- `packages/backend/src/services/snapshotBroadcaster.ts` — periodic fleet timer
+
+**Flow:**
+1. Client connects → hub registers it → server sends `welcome`
+2. Client sends `subscribe` → hub adds topics to client record
+3. Server-side mutation (task create, event append, command) → route handler calls a `broadcast*` function → hub iterates subscribed clients and sends messages
+4. Fleet snapshots fire automatically from `snapshotBroadcaster` at `SNAPSHOT_INTERVAL_MS`
+5. Protocol-level ping/pong every interval; dead clients terminated
+
+**Topics:**
+- `fleet` — full robot state, broadcast every 10 s
+- `tasks` — individual task created/updated
+- `events` — individual event appended
+- `commands` — result of a command dispatch
+
+**Not in Stage B5:** persistence of subscriptions across reconnects. Clients must re-subscribe on reconnect.
+
+See `docs/WEBSOCKET.md` for the full protocol reference.

@@ -50,6 +50,15 @@ export interface HealthCheckResponse {
     database: 'ok' | 'failed';
     websocket?: string;
   };
+  db: {
+    path: string;
+    sizeBytes: number;
+    walSizeBytes: number;
+    robots: number;
+    tasks: number;
+    events: number;
+    lastEventAt: string | null;
+  };
 }
 
 /**

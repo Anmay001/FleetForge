@@ -51,4 +51,18 @@ describe('Health endpoint', () => {
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe('NOT_FOUND');
   });
+
+  it('GET /healthz includes database stats', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/healthz',
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.db).toBeDefined();
+    expect(typeof body.db.robots).toBe('number');
+    expect(typeof body.db.tasks).toBe('number');
+    expect(typeof body.db.events).toBe('number');
+    expect(body.db.path).toBeDefined();
+  });
 });

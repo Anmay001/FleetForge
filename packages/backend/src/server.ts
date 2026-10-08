@@ -12,6 +12,8 @@ import { registerCommandsRoutes } from './routes/commands.routes.js';
 import { handleConnection, startHeartbeat } from './websocket/handlers.js';
 import { wsHub } from './websocket/hub.js';
 import { startSnapshotBroadcaster } from './services/snapshotBroadcaster.js';
+import { startMaintenance, pruneOnce } from './services/eventPruner.js';
+import { getDbStats } from './services/dbStats.js';
 import type { HealthCheckResponse } from '@fleetforge/shared';
 
 /**
@@ -39,6 +41,13 @@ export async function buildServer(): Promise<FastifyInstance> {
 
   // --- Run migrations on boot ---
   runMigrations();
+
+  // One-time prune on boot
+  try {
+    pruneOnce();
+  } catch (err) {
+    app.log.warn({ err }, 'startup prune failed');
+  }
 
   // --- CORS ---
   await app.register(cors, {
@@ -73,33 +82,9 @@ export async function buildServer(): Promise<FastifyInstance> {
   await registerCommandsRoutes(app);
 
   // --- Health check ---
-  app.get('/healthz', {
-    schema: {
-      tags: ['health'],
-      summary: 'Health check',
-      response: {
-        200: {
-          type: 'object',
-          properties: {
-            status: { type: 'string', enum: ['ok', 'degraded'] },
-            service: { type: 'string' },
-            version: { type: 'string' },
-            env: { type: 'string' },
-            uptime: { type: 'number' },
-            timestamp: { type: 'string', format: 'date-time' },
-            checks: {
-              type: 'object',
-              properties: {
-                database: { type: 'string', enum: ['ok', 'failed'] },
-                websocket: { type: 'string' },
-              },
-            },
-          },
-        },
-      },
-    },
-  }, async (): Promise<HealthCheckResponse> => {
+  app.get('/healthz', async (): Promise<HealthCheckResponse> => {
     const dbHealthy = isDbHealthy();
+    const stats = getDbStats();
     return {
       status: dbHealthy ? 'ok' : 'degraded',
       service: 'fleetforge-backend',
@@ -110,6 +95,15 @@ export async function buildServer(): Promise<FastifyInstance> {
       checks: {
         database: dbHealthy ? 'ok' : 'failed',
         websocket: `${wsHub.getClientCount()} clients`,
+      },
+      db: {
+        path: stats.path,
+        sizeBytes: stats.sizeBytes,
+        walSizeBytes: stats.walSizeBytes,
+        robots: stats.robots,
+        tasks: stats.tasks,
+        events: stats.events,
+        lastEventAt: stats.lastEventAt,
       },
     };
   });
@@ -193,16 +187,22 @@ async function start(): Promise<void> {
       'fleet broadcast'
     );
   });
-  process.on('SIGTERM', () => {
+  const stopMaintenance = startMaintenance((info) => {
+    app.log.debug(
+      { pruned: info.pruned },
+      'event pruner'
+    );
+  });
+
+  const shutdownAndExit = (signal: string) => {
     stopHeartbeat();
     stopBroadcaster();
-    void shutdown('SIGTERM');
-  });
-  process.on('SIGINT', () => {
-    stopHeartbeat();
-    stopBroadcaster();
-    void shutdown('SIGINT');
-  });
+    stopMaintenance();
+    void shutdown(signal);
+  };
+
+  process.on('SIGTERM', () => shutdownAndExit('SIGTERM'));
+  process.on('SIGINT', () => shutdownAndExit('SIGINT'));
 
   try {
     await app.listen({ port: config.port, host: config.host });

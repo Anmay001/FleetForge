@@ -1,8 +1,15 @@
-import Fastify, { type FastifyInstance, type FastifyError } from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import websocket from '@fastify/websocket';
 import { config } from './config.js';
 import { runMigrations, closeDb, isDbHealthy } from './db/index.js';
+import { registerErrorHandler } from './plugins/errorHandler.js';
+import { registerOpenApi } from './plugins/openapi.js';
+import { registerFleetRoutes } from './routes/fleet.routes.js';
+import { registerTasksRoutes } from './routes/tasks.routes.js';
+import { registerEventsRoutes } from './routes/events.routes.js';
+import { registerCommandsRoutes } from './routes/commands.routes.js';
+import type { HealthCheckResponse } from '@fleetforge/shared';
 
 /**
  * Build the Fastify instance without starting it. Useful for tests
@@ -44,8 +51,41 @@ export async function buildServer(): Promise<FastifyInstance> {
     },
   });
 
+  // --- OpenAPI ---
+  await registerOpenApi(app);
+
+  // --- Domain routes ---
+  await registerFleetRoutes(app);
+  await registerTasksRoutes(app);
+  await registerEventsRoutes(app);
+  await registerCommandsRoutes(app);
+
   // --- Health check ---
-  app.get('/healthz', async () => {
+  app.get('/healthz', {
+    schema: {
+      tags: ['health'],
+      summary: 'Health check',
+      response: {
+        200: {
+          type: 'object',
+          properties: {
+            status: { type: 'string', enum: ['ok', 'degraded'] },
+            service: { type: 'string' },
+            version: { type: 'string' },
+            env: { type: 'string' },
+            uptime: { type: 'number' },
+            timestamp: { type: 'string', format: 'date-time' },
+            checks: {
+              type: 'object',
+              properties: {
+                database: { type: 'string', enum: ['ok', 'failed'] },
+              },
+            },
+          },
+        },
+      },
+    },
+  }, async (): Promise<HealthCheckResponse> => {
     const dbHealthy = isDbHealthy();
     return {
       status: dbHealthy ? 'ok' : 'degraded',
@@ -66,8 +106,28 @@ export async function buildServer(): Promise<FastifyInstance> {
     description:
       'Autonomous Fleet Coordination API — see /healthz for status',
     endpoints: {
+      docs: '/api/docs',
       health: '/healthz',
-      // More endpoints added in later batches
+      fleet: {
+        list: 'GET /api/fleet',
+        detail: 'GET /api/fleet/:id',
+        snapshot: 'POST /api/fleet/snapshot',
+      },
+      tasks: {
+        list: 'GET /api/tasks',
+        detail: 'GET /api/tasks/:id',
+        create: 'POST /api/tasks',
+        updateStatus: 'PATCH /api/tasks/:id',
+        assign: 'POST /api/tasks/:id/assign',
+      },
+      events: {
+        list: 'GET /api/events',
+        append: 'POST /api/events',
+        prune: 'POST /api/events/prune',
+      },
+      commands: {
+        dispatch: 'POST /api/commands',
+      },
     },
   }));
 
@@ -82,21 +142,8 @@ export async function buildServer(): Promise<FastifyInstance> {
     });
   });
 
-  // --- Global error handler ---
-  app.setErrorHandler((error: FastifyError, request, reply) => {
-    request.log.error({ err: error }, 'Unhandled error');
-    const statusCode = error.statusCode ?? 500;
-    reply.code(statusCode).send({
-      ok: false,
-      error: {
-        code: error.code ?? 'INTERNAL_ERROR',
-        message:
-          config.isProduction && statusCode === 500
-            ? 'Internal server error'
-            : error.message,
-      },
-    });
-  });
+  // --- Global error handler (Zod-aware) ---
+  registerErrorHandler(app);
 
   return app;
 }

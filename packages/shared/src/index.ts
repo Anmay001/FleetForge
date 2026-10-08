@@ -5,3 +5,4 @@ export * from './engine/pheromoneMap';
 export * from './engine/routePlanner';
 export * from './engine/routeRegistry';
 export * from './engine/waypointGraph';
+export * from './api/envelope';

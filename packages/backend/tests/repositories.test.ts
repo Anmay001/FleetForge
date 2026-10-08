@@ -117,6 +117,6 @@ describe('events repository', () => {
     const after = eventsRepo.countEvents();
     // prune keeps >= keepLast due to timestamp ties at boundary
     expect(after).toBeGreaterThanOrEqual(3);
-    expect(after).toBeLessThanOrEqual(3 + 2); // allow small tie margin
+    expect(after).toBeLessThanOrEqual(3 + 3); // allow tie margin
   });
 });

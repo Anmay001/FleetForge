@@ -2,17 +2,28 @@ import { useFleetStore } from '../../store/useFleetStore';
 import StatusBadge from '../common/StatusBadge';
 import { TONE_HEX, toneOfBattery } from '../common/status';
 
-export default function FleetGrid() {
+export interface FleetGridProps {
+  onInspectRobot?: (id: string) => void;
+}
+
+export default function FleetGrid({ onInspectRobot }: FleetGridProps) {
   const robots = useFleetStore((s) => s.robots);
   const selectedId = useFleetStore((s) => s.selectedRobotId);
   const selectRobot = useFleetStore((s) => s.selectRobot);
+
+  const handleSelect = (id: string) => {
+    selectRobot(id);
+    if (onInspectRobot) {
+      onInspectRobot(id);
+    }
+  };
 
   return (
     <div className="p-6 space-y-4">
       <div>
         <h1 className="ff-label">Fleet Management</h1>
         <p className="ff-sub mt-1">
-          Click a robot to inspect telemetry. Status badges update live.
+          Click any robot card to inspect its telemetry and switch to the live 3D coordinate view.
         </p>
       </div>
 
@@ -24,15 +35,15 @@ export default function FleetGrid() {
             <button
               key={r.id}
               type="button"
-              onClick={() => selectRobot(r.id)}
+              onClick={() => handleSelect(r.id)}
               className={[
-                'text-left p-4 transition-colors border rounded-lg',
+                'text-left p-4 transition-colors border rounded-lg group',
                 'bg-white dark:bg-slate-900',
                 isSelected
                   ? 'border-emerald-500 ' +
                     'ring-1 ring-emerald-500/30'
                   : 'border-slate-200 dark:border-slate-800 ' +
-                    'hover:border-slate-300 dark:hover:border-slate-700',
+                    'hover:border-emerald-500/50 dark:hover:border-emerald-500/50',
               ].join(' ')}
             >
               <div className="flex items-center justify-between mb-4">

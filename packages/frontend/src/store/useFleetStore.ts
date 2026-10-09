@@ -61,6 +61,32 @@ export const useFleetStore = create<FleetState>((set) => ({
       id: `EVT-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       timestamp: new Date().toISOString(),
     };
+
+    if (e.type === 'DANGER' && typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('fleetforge:settings');
+        const settings = raw ? JSON.parse(raw) : null;
+        if (settings?.enableSoundAlerts) {
+          const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+          if (AudioContextClass) {
+            const ctx = new AudioContextClass();
+            const osc = ctx.createOscillator();
+            const gain = ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(880, ctx.currentTime);
+            gain.gain.setValueAtTime(0.08, ctx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+            osc.connect(gain);
+            gain.connect(ctx.destination);
+            osc.start();
+            osc.stop(ctx.currentTime + 0.25);
+          }
+        }
+      } catch {
+        // audio might be blocked by browser policy until interaction
+      }
+    }
+
     const events = [newEvent, ...s.events].slice(0, 100);
     return { events };
   }),

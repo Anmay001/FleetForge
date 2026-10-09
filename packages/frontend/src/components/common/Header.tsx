@@ -24,13 +24,14 @@ export interface HeaderProps {
   onLogout: () => void;
 }
 
-export default function Header({}: HeaderProps) {
+export default function Header({ onLogout }: HeaderProps) {
   const isRunning = useFleetStore((s) => s.isRunning);
   const setRunning = useFleetStore((s) => s.setRunning);
   const resetSimulation = useFleetStore((s) => s.resetSimulation);
   const isEmergencyStopped = useFleetStore((s) => s.isEmergencyStopped);
 
   const [now, setNow] = useState<Date>(() => new Date());
+  const [profileOpen, setProfileOpen] = useState(false);
 
   useEffect(() => {
     const id = window.setInterval(() => setNow(new Date()), 1000);
@@ -124,17 +125,73 @@ export default function Header({}: HeaderProps) {
           <RotateCcw size={16} />
         </button>
 
-        <div className="flex items-center gap-2 pl-2
-                        border-l border-slate-200 dark:border-slate-800">
-          <div className="w-6 h-6 rounded bg-emerald-500
-                          text-white text-[10px] font-bold
-                          flex items-center justify-center">
-            A
-          </div>
-          <span className="text-xs font-mono text-slate-700
-                           dark:text-slate-300 hidden sm:inline">
-            Admin
-          </span>
+        {/* Admin profile dropdown */}
+        <div className="relative pl-2 border-l border-slate-200 dark:border-slate-800">
+          <button
+            type="button"
+            onClick={() => setProfileOpen((o) => !o)}
+            className="flex items-center gap-2 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+            title="Operator profile"
+            aria-expanded={profileOpen}
+          >
+            <div className="w-6 h-6 rounded bg-emerald-500
+                            text-white text-[10px] font-bold
+                            flex items-center justify-center">
+              A
+            </div>
+            <span className="text-xs font-mono text-slate-700
+                             dark:text-slate-300 hidden sm:inline">
+              Admin
+            </span>
+          </button>
+
+          {profileOpen && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setProfileOpen(false)}
+              />
+              <div className="absolute right-0 top-full mt-2 w-56 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl z-50 py-2">
+                <div className="px-3 py-2 border-b border-slate-100 dark:border-slate-800/60">
+                  <div className="text-xs font-semibold text-slate-900 dark:text-white">
+                    Operations Dispatcher
+                  </div>
+                  <div className="text-[10px] font-mono text-slate-500 dark:text-slate-400 mt-0.5">
+                    admin@fleetforge.local
+                  </div>
+                  <div className="mt-1 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    <span className="text-[10px] font-mono text-emerald-600 dark:text-emerald-400">
+                      Stand-alone Offline Mode
+                    </span>
+                  </div>
+                </div>
+
+                <div className="py-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      resetSimulation();
+                      setProfileOpen(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors"
+                  >
+                    Reset Active Session
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setProfileOpen(false);
+                      onLogout();
+                    }}
+                    className="w-full text-left px-3 py-1.5 text-xs text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/10 transition-colors"
+                  >
+                    Clear Cache &amp; Reload
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </header>

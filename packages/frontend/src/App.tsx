@@ -41,7 +41,15 @@ export default function App() {
     <AppShell
       activeView={view}
       onNavigate={setView}
-      onLogout={() => {}}
+      onLogout={() => {
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+        } catch {
+          // ignore
+        }
+        window.location.reload();
+      }}
     >
       {renderView()}
     </AppShell>
@@ -151,7 +159,11 @@ export default function App() {
     }
 
     if (view === 'fleet') {
-      return <FleetGrid />;
+      return (
+        <FleetGrid
+          onInspectRobot={() => setView('simulation')}
+        />
+      );
     }
 
     if (view === 'settings') {

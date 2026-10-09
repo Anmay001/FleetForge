@@ -1,9 +1,16 @@
 import { useState } from 'react';
 import { useThemeStore } from '../../store/useThemeStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 
 export default function SettingsPanel() {
   const theme = useThemeStore((s) => s.theme);
   const toggleTheme = useThemeStore((s) => s.toggle);
+
+  const autoReset = useSettingsStore((s) => s.autoResetOnCompletion);
+  const showGrid = useSettingsStore((s) => s.showGridCoordinates);
+  const soundAlerts = useSettingsStore((s) => s.enableSoundAlerts);
+  const compactTelemetry = useSettingsStore((s) => s.compactTelemetry);
+  const toggleSetting = useSettingsStore((s) => s.toggleSetting);
 
   return (
     <div className="p-6 max-w-2xl">
@@ -30,17 +37,20 @@ export default function SettingsPanel() {
         <Row
           label="Auto-reset on completion"
           hint="Reset the fleet to initial state when all tasks complete"
-          defaultOn={false}
+          on={autoReset}
+          onToggle={() => toggleSetting('autoResetOnCompletion')}
         />
         <Row
           label="Show grid coordinates"
           hint="Display X / Z labels on the warehouse grid"
-          defaultOn={true}
+          on={showGrid}
+          onToggle={() => toggleSetting('showGridCoordinates')}
         />
         <Row
           label="Enable sound alerts"
           hint="Play a subtle beep on DANGER events"
-          defaultOn={false}
+          on={soundAlerts}
+          onToggle={() => toggleSetting('enableSoundAlerts')}
         />
       </Section>
 
@@ -48,7 +58,8 @@ export default function SettingsPanel() {
         <Row
           label="Compact telemetry panel"
           hint="Reduce padding in the inspector for more rows"
-          defaultOn={false}
+          on={compactTelemetry}
+          onToggle={() => toggleSetting('compactTelemetry')}
         />
       </Section>
 

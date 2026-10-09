@@ -1,14 +1,17 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { Edges } from '@react-three/drei';
+import { Edges, Html } from '@react-three/drei';
 import { CHARGING_PADS, DROP_ZONES, LANES, WAYPOINTS } from '@fleetforge/shared';
 import { GRID_SIZE, ScenePalette } from './constants';
+import { useSettingsStore } from '../../../store/useSettingsStore';
 
 export interface WarehouseFloorProps {
   palette: ScenePalette;
 }
 
 export default function WarehouseFloor({ palette }: WarehouseFloorProps) {
+  const showGridCoordinates = useSettingsStore((s) => s.showGridCoordinates);
+
   // Checkerboard tiles — subtle in light mode, subtle in dark
   const tiles = useMemo(() => {
     const arr: Array<{ x: number; z: number; alt: boolean }> = [];
@@ -178,6 +181,38 @@ export default function WarehouseFloor({ palette }: WarehouseFloorProps) {
           ))}
         </group>
       ))}
+
+      {/* Optional grid coordinate labels */}
+      {showGridCoordinates && (
+        <group>
+          {LANES.x.map((x) => (
+            <Html
+              key={`label-x-${x}`}
+              position={[x, 0.05, 0.3]}
+              center
+              distanceFactor={20}
+              zIndexRange={[5, 0]}
+            >
+              <span className="font-mono text-[9px] px-1 py-0.5 rounded bg-slate-900/80 text-emerald-400 border border-emerald-500/30 select-none pointer-events-none">
+                X:{x}
+              </span>
+            </Html>
+          ))}
+          {LANES.z.map((z) => (
+            <Html
+              key={`label-z-${z}`}
+              position={[0.3, 0.05, z]}
+              center
+              distanceFactor={20}
+              zIndexRange={[5, 0]}
+            >
+              <span className="font-mono text-[9px] px-1 py-0.5 rounded bg-slate-900/80 text-cyan-400 border border-cyan-500/30 select-none pointer-events-none">
+                Z:{z}
+              </span>
+            </Html>
+          ))}
+        </group>
+      )}
     </group>
   );
 }

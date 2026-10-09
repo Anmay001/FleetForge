@@ -4,6 +4,7 @@ import {
 } from 'lucide-react';
 import { ReactNode } from 'react';
 import { useFleetStore } from '../../store/useFleetStore';
+import { useSettingsStore } from '../../store/useSettingsStore';
 import {
   TONE_BG, TONE_HEX, TONE_TEXT, batteryLabel, statusLabel,
   toneOfBattery, toneOfStatus,
@@ -16,6 +17,7 @@ export default function TelemetryInspector() {
   const updateRobot = useFleetStore((s) => s.updateRobot);
   const toggleEmergencyStop = useFleetStore((s) => s.toggleEmergencyStop);
   const isEmergencyStopped = useFleetStore((s) => s.isEmergencyStopped);
+  const compact = useSettingsStore((s) => s.compactTelemetry);
 
   const robot = robots.find((r) => r.id === selectedId) ?? robots[0];
 
@@ -98,10 +100,10 @@ export default function TelemetryInspector() {
       <div className="flex-1 min-h-0 overflow-y-auto">
 
         {/* POWER */}
-        <Section title="Power">
+        <Section title="Power" compact={compact}>
           <div className="flex items-baseline justify-between gap-3">
-            <span className="text-[22px] font-mono font-semibold leading-none
-                             text-slate-900 dark:text-white">
+            <span className={`${compact ? 'text-[18px]' : 'text-[22px]'} font-mono font-semibold leading-none
+                             text-slate-900 dark:text-white`}>
               {robot.battery.toFixed(0)}%
             </span>
             <span className={['ff-status', TONE_TEXT[batteryTone]].join(' ')}>
@@ -109,7 +111,7 @@ export default function TelemetryInspector() {
               {batteryLabel(robot.battery)}
             </span>
           </div>
-          <div className="ff-meter mt-2.5">
+          <div className={`ff-meter ${compact ? 'mt-1.5' : 'mt-2.5'}`}>
             <div
               className="ff-meter-fill"
               style={{
@@ -121,26 +123,27 @@ export default function TelemetryInspector() {
         </Section>
 
         {/* MISSION */}
-        <Section title="Mission">
-          <Field label="Current task" value={robot.currentTask ?? '—'} />
-          <Field label="Destination" value={robot.destination} />
+        <Section title="Mission" compact={compact}>
+          <Field label="Current task" value={robot.currentTask ?? '—'} compact={compact} />
+          <Field label="Destination" value={robot.destination} compact={compact} />
           {robot.payload !== null && (
-            <Field label="Payload" value={robot.payload} />
+            <Field label="Payload" value={robot.payload} compact={compact} />
           )}
         </Section>
 
         {/* TELEMETRY */}
-        <Section title="Telemetry">
-          <div className="py-1.5">
-            <div className="ff-field-label mb-1.5">Position</div>
+        <Section title="Telemetry" compact={compact}>
+          <div className={compact ? 'py-0.5' : 'py-1.5'}>
+            <div className={`ff-field-label ${compact ? 'mb-1' : 'mb-1.5'}`}>Position</div>
             <div className="grid grid-cols-2 gap-2">
               <ValueBox axis="X" value={`${robot.position.x.toFixed(2)} m`} />
               <ValueBox axis="Z" value={`${robot.position.z.toFixed(2)} m`} />
             </div>
           </div>
-          <Field label="Speed" value={`${robot.speed.toFixed(2)} m/s`} />
+          <Field label="Speed" value={`${robot.speed.toFixed(2)} m/s`} compact={compact} />
           <Field label="Distance travelled"
-                 value={`${robot.distanceTravelled.toFixed(1)} m`} />
+                 value={`${robot.distanceTravelled.toFixed(1)} m`}
+                 compact={compact} />
         </Section>
       </div>
 
@@ -198,11 +201,32 @@ export default function TelemetryInspector() {
           label="Send to charging pad"
           tone="neutral"
           full
-          onClick={() => updateRobot(robot.id, {
-            status: 'GOING_TO_CHARGE',
-            targetPosition: { x: 2, y: 0, z: 2 },
-            destination: 'CHARGE-01',
-          })}
+          onClick={() => {
+            // Find closest pad to this robot's current position
+            const pads = [
+              { id: 'CHARGE-01', x: 2, z: 2 },
+              { id: 'CHARGE-02', x: 2, z: 18 },
+            ];
+            let bestPad = pads[0];
+            let bestDist = Infinity;
+            for (const p of pads) {
+              const d = Math.hypot(p.x - robot.position.x, p.z - robot.position.z);
+              if (d < bestDist) {
+                bestDist = d;
+                bestPad = p;
+              }
+            }
+            updateRobot(robot.id, {
+              status: 'GOING_TO_CHARGE',
+              targetPosition: { x: bestPad.x, y: 0, z: bestPad.z },
+              destination: bestPad.id,
+            });
+            useFleetStore.getState().addEvent({
+              robotId: robot.id,
+              message: `${robot.id} dispatched to ${bestPad.id} for charging`,
+              type: 'INFO',
+            });
+          }}
         />
       </div>
 
@@ -250,18 +274,18 @@ export default function TelemetryInspector() {
 
 /* ------------------------------------------------------------------ */
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({ title, compact, children }: { title: string; compact?: boolean; children: ReactNode }) {
   return (
-    <div className="px-4 py-3 border-b ff-rule">
-      <div className="ff-label mb-2.5">{title}</div>
+    <div className={`px-4 border-b ff-rule ${compact ? 'py-1.5' : 'py-3'}`}>
+      <div className={`ff-label ${compact ? 'mb-1.5' : 'mb-2.5'}`}>{title}</div>
       {children}
     </div>
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, compact }: { label: string; value: string; compact?: boolean }) {
   return (
-    <div className="flex items-center justify-between gap-3 py-1.5">
+    <div className={`flex items-center justify-between gap-3 ${compact ? 'py-0.5' : 'py-1.5'}`}>
       <span className="ff-field-label flex-shrink-0">{label}</span>
       <span className="ff-data truncate">{value}</span>
     </div>
@@ -270,7 +294,7 @@ function Field({ label, value }: { label: string; value: string }) {
 
 function ValueBox({ axis, value }: { axis: string; value: string }) {
   return (
-    <div className="flex items-baseline gap-2 px-2 py-1.5 rounded
+    <div className="flex items-baseline gap-2 px-2 py-1 rounded
                     bg-slate-50 dark:bg-slate-800/60">
       <span className="ff-label">{axis}</span>
       <span className="font-mono text-xs text-slate-900 dark:text-white

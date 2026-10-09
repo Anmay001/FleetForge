@@ -94,3 +94,41 @@ export function snapToLaneIntersection(x: number, z: number): {
   }
   return { x: nearestX, z: nearestZ };
 }
+
+/**
+ * Safety margin around every rack. AMR half-width (0.4) plus a 
+ * 0.15 m buffer for visual smoothing. Physics tests should use 
+ * these expanded bounds so AMRs never clip rack corners.
+ */
+export const RACK_SAFETY_MARGIN = 0.35;
+
+export interface RackBounds {
+  id: string;
+  // Expanded AABB — already includes RACK_SAFETY_MARGIN on all sides.
+  minX: number;
+  maxX: number;
+  minZ: number;
+  maxZ: number;
+  // Original (unexpanded) bounds — useful for rendering debug outlines.
+  rawMinX: number;
+  rawMaxX: number;
+  rawMinZ: number;
+  rawMaxZ: number;
+}
+
+/**
+ * Precomputed collision bounds for all racks. Consumed by 
+ * engine/collision.ts and the simulation loop.
+ */
+export const RACK_BOUNDS: RackBounds[] = RACKS.map((rack) => ({
+  id: rack.id,
+  minX: rack.x - RACK_SAFETY_MARGIN,
+  maxX: rack.x + rack.width + RACK_SAFETY_MARGIN,
+  minZ: rack.z - RACK_SAFETY_MARGIN,
+  maxZ: rack.z + rack.depth + RACK_SAFETY_MARGIN,
+  rawMinX: rack.x,
+  rawMaxX: rack.x + rack.width,
+  rawMinZ: rack.z,
+  rawMaxZ: rack.z + rack.depth,
+}));
+

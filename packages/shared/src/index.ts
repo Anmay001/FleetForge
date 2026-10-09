@@ -7,3 +7,4 @@ export * from './engine/routeRegistry';
 export * from './engine/waypointGraph';
 export * from './api/envelope';
 export * from './api/ws';
+export * from './engine/collision';

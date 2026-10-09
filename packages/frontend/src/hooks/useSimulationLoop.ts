@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { useFleetStore } from '../store/useFleetStore';
+import { useSettingsStore } from '../store/useSettingsStore';
 import {
   AMR,
   WAYPOINTS,
@@ -11,6 +12,10 @@ import {
   PlannerContext,
   pheromoneMap,
   routeRegistry,
+  segmentHitsRack,
+  robotsShouldYield,
+  robotsOverlap,
+  AMR_SAFE_DISTANCE,
 } from '@fleetforge/shared';
 
 const WAYPOINT_MAP: Record<string, { x: number; z: number }> =
@@ -36,6 +41,7 @@ interface RobotPhase {
   path: string[] | null;
   destinationId: string | null;
   waitingSince: number;
+  blockedSince: number;
   lastPlanAt: number;
   reachedTarget: boolean;
 }
@@ -197,12 +203,52 @@ function runCoordinator(
         path: null,
         destinationId: null,
         waitingSince: 0,
+        blockedSince: 0,
         lastPlanAt: 0,
         reachedTarget: false,
       };
       phases.set(robot.id, phase);
       // Lock initial waypoint
       if (wpId) routeRegistry.lockWaypoint(wpId, robot.id);
+    }
+
+    // --- Stall detection ---
+    // If this robot has been blocked for more than 4 seconds, 
+    // force-unlock: reset the phase to IDLE so it picks a fresh 
+    // destination on the next tick.
+    if (phase.blockedSince > 0 && nowMs - phase.blockedSince > 4000) {
+      // Release any held reservations
+      if (phase.currentWaypointId) {
+        routeRegistry.releaseWaypoint(phase.currentWaypointId, robot.id);
+      }
+      routeRegistry.unpublish(robot.id);
+
+      // Reset phase
+      phase.phase = 'IDLE';
+      phase.destinationId = null;
+      phase.path = null;
+      phase.nextWaypointId = null;
+      phase.waitingSince = 0;
+      phase.blockedSince = 0;
+      phase.lastPlanAt = 0;
+      phase.phaseStartedAt = nowMs;
+      phase.reachedTarget = false;
+
+      // Reset robot status
+      useFleetStore.getState().updateRobot(robot.id, {
+        status: 'IDLE',
+        speed: 0,
+        destination: 'IDLE',
+      });
+
+      // Log the event once
+      useFleetStore.getState().addEvent({
+        robotId: robot.id,
+        message: `${robot.id} rerouting — blocked for >4s`,
+        type: 'WARN',
+      });
+
+      continue;
     }
 
     // ---------- IDLE ----------
@@ -225,6 +271,7 @@ function runCoordinator(
         message: `${robot.id} routed to ${destId}`,
         type: 'INFO',
       });
+      phase.blockedSince = 0;
       phase.phase = 'MOVING';
       phase.phaseStartedAt = nowMs;
       continue;
@@ -266,6 +313,7 @@ function runCoordinator(
           });
           phase.phase = 'ALIGNING';
         }
+        phase.blockedSince = 0;
         phase.phaseStartedAt = nowMs;
       } else {
         // Blocked
@@ -344,6 +392,7 @@ function runCoordinator(
           status: 'PICKING_UP',
         });
         phase.phase = 'PICKING_UP';
+        phase.blockedSince = 0;
         phase.phaseStartedAt = nowMs;
       }
       continue;
@@ -379,6 +428,7 @@ function runCoordinator(
             type: 'SUCCESS',
           });
           phase.phase = 'MOVING';
+          phase.blockedSince = 0;
           phase.phaseStartedAt = nowMs;
         }
       }
@@ -406,6 +456,7 @@ function runCoordinator(
           type: 'SUCCESS',
         });
         phase.phase = 'IDLE';
+        phase.blockedSince = 0;
         phase.destinationId = null;
         phase.path = null;
         phase.nextWaypointId = null;
@@ -439,6 +490,7 @@ function runCoordinator(
           type: 'INFO',
         });
         phase.phase = 'IDLE';
+        phase.blockedSince = 0;
         phase.destinationId = null;
         phase.path = null;
         phase.nextWaypointId = null;
@@ -459,6 +511,7 @@ function runCoordinator(
     if (phase.phase === 'OBSTACLE') {
       if (nowMs - phase.phaseStartedAt > 2000) {
         phase.phase = 'MOVING';
+        phase.blockedSince = 0;
         phase.phaseStartedAt = nowMs;
       }
       continue;
@@ -467,6 +520,43 @@ function runCoordinator(
 }
 
 // -------- Motion loop (30 Hz) --------
+
+/**
+ * Returns the ID of another AMR that this robot should yield to, 
+ * or null if free to move.
+ *
+ * Priority rule: lower numericId wins. If this robot has lower 
+ * numericId than the blocker, it does NOT yield (blocker should 
+ * yield instead).
+ */
+function findBlocker(
+  self: AMR,
+  others: AMR[],
+  nextX: number,
+  nextZ: number
+): AMR | null {
+  for (const other of others) {
+    if (other.id === self.id) continue;
+
+    // Project the OTHER robot's position onto the segment self is 
+    // about to occupy — actually just use its current position 
+    // since we're checking if the NEXT step lands too close.
+    const dx = other.position.x - nextX;
+    const dz = other.position.z - nextZ;
+    const d = Math.hypot(dx, dz);
+
+    if (d < AMR_SAFE_DISTANCE || robotsShouldYield({ x: nextX, z: nextZ }, other.position)) {
+      // Someone is too close. Who yields?
+      // Lower numericId wins → higher numericId yields.
+      if (self.numericId > other.numericId) {
+        return other;
+      }
+      // We have priority — do not yield to this other robot
+    }
+  }
+  return null;
+}
+
 function applyMotion(
   robot: AMR,
   phase: RobotPhase,
@@ -500,6 +590,70 @@ function applyMotion(
   const step = Math.min(newSpeed * dtSec, dist);
   const nx = robot.position.x + (dx / dist) * step;
   const nz = robot.position.z + (dz / dist) * step;
+
+  const nowMs = performance.now();
+
+  // --- CHECK 1: Rack collision ---
+  // If the segment from current to next crosses any expanded rack 
+  // AABB, refuse the move. AMRs must never enter rack footprints.
+  const rackHit = segmentHitsRack(
+    robot.position.x,
+    robot.position.z,
+    nx,
+    nz
+  );
+  if (rackHit !== null) {
+    // Stop at current position, remember the moment we got stuck
+    if (phase.blockedSince === 0) {
+      phase.blockedSince = nowMs;
+    }
+    useFleetStore.getState().updateRobot(robot.id, {
+      speed: 0,
+      status: 'WAITING',
+    });
+    return;
+  }
+
+  // --- CHECK 2: AMR-AMR proximity ---
+  // If another AMR is too close to the next step AND has priority 
+  // (lower numericId), hold position.
+  const allRobots = useFleetStore.getState().robots;
+  const blocker = findBlocker(robot, allRobots, nx, nz);
+  if (blocker !== null) {
+    if (phase.blockedSince === 0) {
+      phase.blockedSince = nowMs;
+    }
+    useFleetStore.getState().updateRobot(robot.id, {
+      speed: 0,
+      status: 'WAITING',
+    });
+    return;
+  }
+
+  // --- CHECK 3: Emergency separation ---
+  // Defensive: if we're already overlapping another AMR (should never 
+  // happen given checks 1-2, but guards against load-order edge cases), 
+  // push both apart along the line between them.
+  for (const other of allRobots) {
+    if (other.id === robot.id) continue;
+    if (robotsOverlap(robot.position, other.position)) {
+      const pushX = robot.position.x - other.position.x;
+      const pushZ = robot.position.z - other.position.z;
+      const pushDist = Math.hypot(pushX, pushZ) || 1;
+      const pushAmount = 0.15;
+      const newX = robot.position.x + (pushX / pushDist) * pushAmount;
+      const newZ = robot.position.z + (pushZ / pushDist) * pushAmount;
+      useFleetStore.getState().updateRobot(robot.id, {
+        position: { x: newX, y: 0, z: newZ },
+        speed: 0,
+      });
+      return;
+    }
+  }
+
+  // --- SUCCESS: commit the move ---
+  // Clear the blocked tracker since we're moving again.
+  phase.blockedSince = 0;
 
   useFleetStore.getState().updateRobot(robot.id, {
     position: { x: nx, y: 0, z: nz },
@@ -553,6 +707,14 @@ export function useSimulationLoop(): void {
         const phase = phasesRef.current.get(robot.id);
         if (!phase) continue;
         applyMotion(robot, phase, dtSec);
+      }
+
+      // Check auto-reset setting if all tasks complete
+      if (useSettingsStore.getState().autoResetOnCompletion) {
+        const tasks = store.tasks;
+        if (tasks.length > 0 && tasks.every((t) => t.status === 'COMPLETED')) {
+          store.resetSimulation();
+        }
       }
     };
 

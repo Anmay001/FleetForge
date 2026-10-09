@@ -4,6 +4,7 @@ import { View } from './components/common/Sidebar';
 import { useThemeStore } from './store/useThemeStore';
 import { useSimulationLoop } from './hooks/useSimulationLoop';
 import { useTaskGenerator } from './hooks/useTaskGenerator';
+import { useServerSync } from './hooks/useServerSync';
 import WarehouseScene from './components/simulation/three/WarehouseScene';
 import SimulationControls from './components/simulation/SimulationControls';
 import TelemetryInspector from './components/simulation/TelemetryInspector';
@@ -34,6 +35,7 @@ export default function App() {
 
   useSimulationLoop();
   useTaskGenerator();
+  useServerSync();
 
   return (
     <AppShell

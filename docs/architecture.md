@@ -361,3 +361,62 @@ tracks occupancy and queue state.
 
 See `docs/WEBSOCKET.md` (unrelated) and `docs/ALGORITHM.md` for the 
 full hive-mind picture.
+
+---
+
+## Hive Mind Algorithm Stack (Stages H1-H4)
+
+The physics + coordination + intelligence layers built across 
+four stages.
+
+### Stage H1 — Physical Correctness
+
+Before any intelligence, the simulation must be physically sound.
+
+- Rack collision: Liang-Barsky continuous segment test against 
+  expanded AABBs (+0.35 m safety margin) — robots can never 
+  penetrate a rack, even at high speed
+- AMR collision: Priority-based yielding (lower numericId wins)
+- Emergency separation: Overlapping robots push apart by 0.15 m
+- Stall recovery: Robots blocked for >4 s force-reroute
+- Files: shared/engine/collision.ts, useSimulationLoop.ts
+
+### Stage H2 — Cooperative Motion
+
+Three-layer navigation that turns hard blocking into smooth 
+cooperation.
+
+- H2.1 Lookahead (30 Hz): Velocity-obstacle prediction computes 
+  minimum time-to-conflict against all AMRs. Speed is capped 
+  proportionally — smooth deceleration instead of hard brakes.
+- H2.2 Active yielding: Lower-priority robot backs up at 
+  0.4 m/s to its previous waypoint to clear a corridor.
+- H2.3 Corridor reservations: Lane segments are first-class 
+  reservable resources. Canonical keys make A→B and B→A the same 
+  lock. Head-on meetings drop ~90%.
+- Files: shared/engine/routeRegistry.ts, useSimulationLoop.ts
+
+### Stage H3 — Emergent Intelligence
+
+Five-factor destination scoring produces colony-like behavior.
+
+- H3.1 Outcome-weighted pheromones: Traversals classified by 
+  productive value (CARRYING 1.5x, YIELDING 0x). Only productive 
+  paths reinforced.
+- H3.2 Weighted selector: Pheromone x congestion x distance 
+  scoring, roulette selection preserving exploration.
+- H3.3 Imitation + diversity: peerMemory tracks delivery 
+  success per waypoint; diversity penalty prevents convergence.
+- Files: shared/engine/pheromoneMap.ts, destinationSelector.ts, 
+  peerMemory.ts, useSimulationLoop.ts
+
+### Stage H4 — Resource Management
+
+Chargers are reservable resources with visible state.
+
+- First-come-first-served reservation
+- 60 s TTL for stale occupancy
+- Four visual states: free, reserved, charging, released
+- Visual indicators show fleet-level state at a glance
+- Files: shared/engine/chargerRegistry.ts, 
+  three/ChargerPads.tsx, useSimulationLoop.ts

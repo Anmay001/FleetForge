@@ -77,6 +77,62 @@ npm run preview
 
 ---
 
+## Hive Mind Architecture
+
+FleetForge coordinates a fleet of autonomous mobile robots using 
+five local rules and zero central dispatcher. Global intelligent 
+behavior emerges from these simple, decentralized mechanisms.
+
+### The Five Factors
+
+Every robot's destination choice is computed from five 
+multiplicative signals:
+
+    score(destination) =
+        (1 + pheromone × 4.0)              <- trail intensity
+      × 1 / (1 + congestion × 1.5)         <- physical crowding
+      × (1 + distance × 0.05)              <- spread preference
+      × (1 + peerSuccess × 2.0)            <- imitation signal
+      × 1 / (1 + peersTargeting × 1.8)     <- diversity floor
+
+### The Layers
+
+| Layer | Mechanism | Source |
+|---|---|---|
+| Stigmergy | Pheromone trails deposit on traversal, decay 8%/s | Ant colony optimization |
+| Imitation | Successful deliveries reinforce their destination | Maynard-Cross Learning (Soma et al. 2024) |
+| Diversity | Penalize destinations other robots are already targeting | Artificial Hivemind (NeurIPS 2025) |
+| Reservations | Waypoints and lane segments locked with TTL | Reservation-based MAPF |
+| Lookahead | Velocity-obstacle collision prediction | RVO / linear extrapolation |
+
+### Emergent Behaviors
+
+Watching the simulation for 5+ minutes, you will observe:
+
+- Self-distribution — the fleet spreads across all warehouse 
+  quadrants instead of clustering
+- Trail reinforcement — common paths (charger to drop zones) 
+  become preferred over time
+- Peer imitation — high-success routes attract more traffic
+- Anti-collapse diversity — no more than 2 robots converge on 
+  the same destination
+- Graceful forgetting — pheromones and imitation signals decay, 
+  so the fleet stays adaptive
+
+### No Central Dispatcher
+
+Every mechanism is local. There is no orchestrator, no task 
+assignment algorithm, no explicit coordination protocol. Each 
+robot reads a shared world state (pheromones, peer memory, 
+reservations) and makes its own decision.
+
+This satisfies the Soma et al. (2024) claim that distributed 
+cognition in swarms is mathematically equivalent to a single 
+reinforcement learning agent optimizing across parallel 
+environments.
+
+---
+
 ## 🧭 Architecture & State
 
 The application is structured into five distinct layers to ensure optimal performance and maintainability:

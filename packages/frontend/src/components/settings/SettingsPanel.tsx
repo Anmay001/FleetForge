@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { ChevronRight } from 'lucide-react';
 import { useThemeStore } from '../../store/useThemeStore';
 import { useSettingsStore } from '../../store/useSettingsStore';
 
@@ -30,6 +31,13 @@ export default function SettingsPanel() {
           hint="Switch between light and dark themes"
           on={theme === 'dark'}
           onToggle={toggleTheme}
+        />
+        <Row
+          label="Show onboarding tour"
+          hint="Replay the first-run walkthrough"
+          onClick={() => {
+            window.dispatchEvent(new Event('fleetforge:show-tour'));
+          }}
         />
       </Section>
 
@@ -107,12 +115,13 @@ interface RowProps {
   on?: boolean;
   onToggle?: () => void;
   defaultOn?: boolean;
+  onClick?: () => void;
 }
 
-function Row({ label, hint, on, onToggle, defaultOn }: RowProps) {
+function Row({ label, hint, on, onToggle, defaultOn, onClick }: RowProps) {
   const [localOn, setLocalOn] = useState(defaultOn ?? false);
   const isOn = on !== undefined ? on : localOn;
-  const handleClick = onToggle ?? (() => setLocalOn(!localOn));
+  const handleClick = onClick ?? onToggle ?? (() => setLocalOn(!localOn));
 
   return (
     <button
@@ -132,23 +141,27 @@ function Row({ label, hint, on, onToggle, defaultOn }: RowProps) {
           {hint}
         </div>
       </div>
-      <span
-        className={[
-          'w-9 h-5 rounded-full relative transition-colors ' +
-          'flex-shrink-0',
-          isOn
-            ? 'bg-emerald-500'
-            : 'bg-slate-300 dark:bg-slate-700',
-        ].join(' ')}
-      >
+      {onClick ? (
+        <ChevronRight size={16} className="text-slate-400 dark:text-slate-500 flex-shrink-0" />
+      ) : (
         <span
           className={[
-            'absolute top-0.5 w-4 h-4 rounded-full bg-white ' +
-            'shadow-sm transition-transform',
-            isOn ? 'translate-x-[18px]' : 'translate-x-0.5',
+            'w-9 h-5 rounded-full relative transition-colors ' +
+            'flex-shrink-0',
+            isOn
+              ? 'bg-emerald-500'
+              : 'bg-slate-300 dark:bg-slate-700',
           ].join(' ')}
-        />
-      </span>
+        >
+          <span
+            className={[
+              'absolute top-0.5 w-4 h-4 rounded-full bg-white ' +
+              'shadow-sm transition-transform',
+              isOn ? 'translate-x-[18px]' : 'translate-x-0.5',
+            ].join(' ')}
+          />
+        </span>
+      )}
     </button>
   );
 }

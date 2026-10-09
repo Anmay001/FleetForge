@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import AppShell from './components/common/AppShell';
+import HelpOverlay from './components/common/HelpOverlay';
+import ControlsHint from './components/common/ControlsHint';
+import OnboardingTour from './components/common/OnboardingTour';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { View } from './components/common/Sidebar';
 import { useThemeStore } from './store/useThemeStore';
 import { useSimulationLoop } from './hooks/useSimulationLoop';
@@ -32,27 +36,67 @@ export default function App() {
   const [viewMode, setViewMode] = useState<'3d' | 'top'>('3d');
   const [follow, setFollow] = useState(false);
   const [cameraResetKey, setCameraResetKey] = useState(0);
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
+
+  useEffect(() => {
+    const key = 'fleetforge.onboarding.completed';
+    const seen = window.localStorage.getItem(key);
+    if (seen !== 'true') {
+      setTourOpen(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setTourOpen(true);
+    window.addEventListener('fleetforge:show-tour', handler);
+    return () =>
+      window.removeEventListener('fleetforge:show-tour', handler);
+  }, []);
 
   useSimulationLoop();
   useTaskGenerator();
   useServerSync();
 
+  useKeyboardShortcuts({
+    onToggleHelp: () => setHelpOpen((prev) => !prev),
+    onCloseHelp: () => setHelpOpen(false),
+  });
+
   return (
-    <AppShell
-      activeView={view}
-      onNavigate={setView}
-      onLogout={() => {
-        try {
-          localStorage.clear();
-          sessionStorage.clear();
-        } catch {
-          // ignore
-        }
-        window.location.reload();
-      }}
-    >
-      {renderView()}
-    </AppShell>
+    <>
+      <AppShell
+        activeView={view}
+        onNavigate={setView}
+        onLogout={() => {
+          try {
+            localStorage.clear();
+            sessionStorage.clear();
+          } catch {
+            // ignore
+          }
+          window.location.reload();
+        }}
+      >
+        {renderView()}
+      </AppShell>
+      <ControlsHint onOpenHelp={() => setHelpOpen(true)} />
+      <HelpOverlay
+        isOpen={helpOpen}
+        onClose={() => setHelpOpen(false)}
+      />
+      <OnboardingTour
+        isOpen={tourOpen}
+        onClose={() => setTourOpen(false)}
+        onComplete={() => {
+          window.localStorage.setItem(
+            'fleetforge.onboarding.completed',
+            'true'
+          );
+          setTourOpen(false);
+        }}
+      />
+    </>
   );
 
   function renderView() {

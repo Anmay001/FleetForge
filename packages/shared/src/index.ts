@@ -9,4 +9,5 @@ export * from './api/envelope';
 export * from './api/ws';
 export * from './engine/collision';
 export * from './engine/destinationSelector';
-export * from './engine/peerMemory';
+export * from './engine/peerMemory';
+export * from './engine/chargerRegistry';

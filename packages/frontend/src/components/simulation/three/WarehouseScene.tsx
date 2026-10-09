@@ -7,6 +7,7 @@ import { useFleetStore } from '../../../store/useFleetStore';
 import { PALETTES, GRID_SIZE } from './constants';
 import Lights from './Lights';
 import WarehouseFloor from './WarehouseFloor';
+import ChargerPads from './ChargerPads';
 import WarehouseRacks from './WarehouseRacks';
 import Obstacles from './Obstacles';
 import AMRs from './AMRs';
@@ -66,6 +67,7 @@ export default function WarehouseScene({
         </mesh>
 
         <WarehouseFloor palette={palette} />
+        <ChargerPads palette={palette} />
         <WarehouseRacks palette={palette} />
         <Obstacles palette={palette} />
         <AMRs palette={palette} />

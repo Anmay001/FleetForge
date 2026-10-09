@@ -303,3 +303,61 @@ run before the server starts serving traffic.
   }
 }
 ```
+
+---
+
+## Charger Resource Management (Stage H4)
+
+Charging pads are first-class reservable resources, not just 
+waypoints with a special color. The `chargerRegistry` singleton 
+tracks occupancy and queue state.
+
+**Files:**
+- `packages/shared/src/engine/chargerRegistry.ts` — reservation 
+  and lifecycle tracking
+- `packages/frontend/src/components/simulation/three/ChargerPads.tsx` 
+  — visual state indicators (polls registry at 10 Hz)
+- `packages/frontend/src/hooks/useSimulationLoop.ts` — charger 
+  selection in `pickNextWaypoint`, reservation on dispatch, 
+  release on charge completion
+
+**Reservation lifecycle:**
+
+1. **Robot drops below 25% battery** → `pickNextWaypoint` calls 
+   `chargerRegistry.findFreeCharger(x, z, self.id)`
+2. **A free charger is found** → the robot routes there and 
+   `chargerRegistry.reserve(chargerId, robot.id)` is called 
+   immediately
+3. **While en route** → the pad shows amber ring + QUEUED badge
+4. **On arrival** → `chargerRegistry.markCharging(chargerId, id)` 
+   is called; the pad shows bright cyan + "AMR-0X CHARGING" badge
+5. **At 90% battery** → `chargerRegistry.release(chargerId, id)` 
+   is called; the pad returns to free state
+6. **If the robot stalls or reroutes** → 
+   `releaseAllForRobot(robot.id)` is called from the stall 
+   recovery branch
+
+**Occupancy semantics:**
+
+| Field | Meaning |
+|---|---|
+| `occupiedBy` | Robot ID currently holding the charger (reserved or charging) |
+| `occupiedSince` | Timestamp; occupancy expires after 60 s if stale |
+| `charging` | Distinguishes "en route" (false) from "actively charging" (true) |
+
+**Deadlock prevention:**
+- If all chargers are occupied, `findFreeCharger` returns null. The 
+  robot falls back to "closest charger regardless of occupancy" — 
+  it queues at the entry waypoint.
+- When the occupying robot releases, the next robot's coordinator 
+  tick picks up the freed charger.
+- A 60-second TTL ensures a crashed robot cannot hold a charger 
+  indefinitely.
+
+**Visual states (ChargerPads.tsx):**
+- Free: dim cyan pad, small ID label
+- Reserved: amber outer ring (slow pulse), amber pad tint, QUEUED badge
+- Charging: bright cyan pad + glow disc, fast-pulsing cyan ring, "AMR-0X CHARGING" badge
+
+See `docs/WEBSOCKET.md` (unrelated) and `docs/ALGORITHM.md` for the 
+full hive-mind picture.

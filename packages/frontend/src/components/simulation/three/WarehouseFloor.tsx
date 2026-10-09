@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import * as THREE from 'three';
-import { Edges, Html } from '@react-three/drei';
-import { CHARGING_PADS, DROP_ZONES, LANES, WAYPOINTS } from '@fleetforge/shared';
+import { Html } from '@react-three/drei';
+import { DROP_ZONES, LANES, WAYPOINTS } from '@fleetforge/shared';
 import { GRID_SIZE, ScenePalette } from './constants';
 import { useSettingsStore } from '../../../store/useSettingsStore';
 
@@ -123,26 +123,6 @@ export default function WarehouseFloor({ palette }: WarehouseFloorProps) {
         ))
       )}
 
-      {/* Charging pads */}
-      {CHARGING_PADS.map((pad) => (
-        <group key={pad.id} position={[pad.x, 0.02, pad.z]}>
-          <mesh rotation={[-Math.PI / 2, 0, 0]}>
-            <planeGeometry args={[2, 2]} />
-            <meshBasicMaterial
-              color={palette.chargingPad}
-              transparent
-              opacity={0.35}
-            />
-          </mesh>
-          <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.005, 0]}>
-            <planeGeometry args={[2, 2]} />
-            <Edges
-              color={palette.chargingBorder}
-              threshold={15}
-            />
-          </mesh>
-        </group>
-      ))}
 
       {/* Drop zones */}
       {DROP_ZONES.map((zone) => (

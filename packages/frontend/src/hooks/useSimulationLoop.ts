@@ -21,6 +21,7 @@ import {
   TraversalOutcome,
   pickWeightedDestination,
   peerMemory,
+  chargerRegistry,
 } from '@fleetforge/shared';
 
 const WAYPOINT_MAP: Record<string, { x: number; z: number }> =
@@ -65,11 +66,23 @@ function buildContext(selfId: string): PlannerContext {
 // -------- Destination picker --------
 function pickDestination(robot: AMR, allRobots: AMR[]): string {
   if (robot.battery < 25) {
+    // Prefer a free charger (or one already reserved for us) that's 
+    // closest. If all are taken, pick the closest anyway — the 
+    // robot will queue at the entry waypoint until it's free.
+    const freeId = chargerRegistry.findFreeCharger(
+      robot.position.x,
+      robot.position.z,
+      robot.id
+    );
+    if (freeId) return freeId;
+
+    // All chargers held — pick the closest one and queue.
     let bestId = CHARGING_PADS[0].id;
     let bestDist = Infinity;
     for (const pad of CHARGING_PADS) {
       const d = Math.hypot(
-        pad.x - robot.position.x, pad.z - robot.position.z
+        pad.x - robot.position.x,
+        pad.z - robot.position.z
       );
       if (d < bestDist) { bestDist = d; bestId = pad.id; }
     }
@@ -271,6 +284,7 @@ function runCoordinator(
     if (phase.blockedSince > 0 && nowMs - phase.blockedSince > 4000) {
       // Release any held reservations
       routeRegistry.clearRobotReservations(robot.id);
+      chargerRegistry.releaseAllForRobot(robot.id);
       routeRegistry.unpublish(robot.id);
 
       // Reset phase
@@ -306,6 +320,12 @@ function runCoordinator(
       if (nowMs - phase.lastPlanAt < REPLAN_COOLDOWN_MS) continue;
       const destId = pickDestination(robot, robots);
       if (!planAndReserve(robot, destId, phase, nowMs)) continue;
+
+      // If the destination is a charger, reserve it now so other 
+      // robots route elsewhere.
+      if (CHARGING_PADS.some((p) => p.id === destId)) {
+        chargerRegistry.reserve(destId, robot.id);
+      }
 
       useFleetStore.getState().updateRobot(robot.id, {
         status: 'MOVING_TO_PICKUP',
@@ -535,10 +555,20 @@ function runCoordinator(
 
     // ---------- CHARGING ----------
     if (phase.phase === 'CHARGING') {
+      // Mark the charger as actively charging the first time we enter 
+      // this branch.
+      const chargerId = phase.destinationId;
+      if (chargerId && robot.battery < 90) {
+        chargerRegistry.markCharging(chargerId, robot.id);
+      }
+
       const newBattery = Math.min(
         100, robot.battery + 0.5 * (COORD_TICK_MS / 1000)
       );
       if (newBattery >= 90) {
+        if (chargerId) {
+          chargerRegistry.release(chargerId, robot.id);
+        }
         if (phase.currentWaypointId) {
           routeRegistry.releaseWaypoint(
             phase.currentWaypointId, robot.id
@@ -911,6 +941,7 @@ export function useSimulationLoop(): void {
         routeRegistry.clear();
         pheromoneMap.clear();
         peerMemory.clear();
+        chargerRegistry.clear();
       }
 
       const nowMs = performance.now();

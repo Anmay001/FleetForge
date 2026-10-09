@@ -18,6 +18,9 @@ import {
   AMR_SAFE_DISTANCE,
   timeToConflict,
   speedScaleFromConflict,
+  TraversalOutcome,
+  pickWeightedDestination,
+  peerMemory,
 } from '@fleetforge/shared';
 
 const WAYPOINT_MAP: Record<string, { x: number; z: number }> =
@@ -79,16 +82,24 @@ function pickDestination(robot: AMR, allRobots: AMR[]): string {
       .map((r) => r.destination)
   );
   const currentWp = snapToWaypoint(robot.position.x, robot.position.z);
-  const candidates = WAYPOINTS.filter((w) => {
-    if (w.id === currentWp) return false;
-    if (claimed.has(w.id)) return false;
-    return Math.hypot(
-      w.x - robot.position.x, w.z - robot.position.z
-    ) > 4;
+  if (!currentWp) return WAYPOINTS[0].id;
+
+  // Filter candidates by physical constraints (still needed before 
+  // scoring — the scorer doesn't know about claimed waypoints)
+  const candidates = WAYPOINTS.filter(
+    (w) => w.id !== currentWp && !claimed.has(w.id)
+  );
+
+  // Weighted selection: pheromone × congestion × distance
+  const picked = pickWeightedDestination(candidates, {
+    startWaypointId: currentWp,
+    startX: robot.position.x,
+    startZ: robot.position.z,
+    robots: allRobots,
+    selfId: robot.id,
+    minDistance: 4,
   });
-  if (candidates.length > 0) {
-    return candidates[Math.floor(Math.random() * candidates.length)].id;
-  }
+  if (picked) return picked.id;
   const relaxed = WAYPOINTS.filter(
     (w) => w.id !== currentWp && !claimed.has(w.id)
   );
@@ -145,10 +156,26 @@ function advanceAlongPath(
   const traversedFrom = phase.currentWaypointId;
   const traversedTo = phase.nextWaypointId;
 
+  // Classify the outcome to weight the deposit
+  let outcome: TraversalOutcome;
+  if (phase.phase === 'YIELDING') {
+    outcome = 'YIELDING';
+  } else if (robot.payload !== null) {
+    outcome = 'CARRYING';
+  } else if (robot.status === 'GOING_TO_CHARGE') {
+    outcome = 'GOING_CHARGE';
+  } else if (phase.destinationId && phase.destinationId !== 'IDLE') {
+    outcome = 'HEADING_PICKUP';
+  } else {
+    outcome = 'IDLE_RETURN';
+  }
+
   // Deposit pheromone on the segment just traversed
   if (traversedFrom && traversedTo) {
-    pheromoneMap.deposit(
-      traversedFrom, traversedTo
+    pheromoneMap.depositOutcome(
+      traversedFrom,
+      traversedTo,
+      outcome
     );
   }
 
@@ -206,6 +233,7 @@ function runCoordinator(
 ): void {
   routeRegistry.tick();
   pheromoneMap.decay(nowMs);
+  peerMemory.decay(nowMs);
 
   const ordered = [...robots].sort((a, b) =>
     a.numericId.localeCompare(b.numericId)
@@ -490,6 +518,7 @@ function runCoordinator(
             `${robot.id} task completed at ${phase.destinationId}`,
           type: 'SUCCESS',
         });
+        peerMemory.recordSuccess(phase.destinationId ?? '');
         phase.phase = 'IDLE';
         phase.blockedSince = 0;
         phase.destinationId = null;
@@ -881,6 +910,7 @@ export function useSimulationLoop(): void {
         phasesRef.current.clear();
         routeRegistry.clear();
         pheromoneMap.clear();
+        peerMemory.clear();
       }
 
       const nowMs = performance.now();

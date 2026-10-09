@@ -18,6 +18,10 @@ interface WaypointLock {
 class RouteRegistry {
   private publications = new Map<string, RoutePublication>();
   private locks = new Map<string, WaypointLock>();
+  private segmentLocks = new Map<string, {
+    robotId: string;
+    expiresAt: number;
+  }>();
 
   /** Publish or update a robot's route. */
   publish(
@@ -119,6 +123,87 @@ class RouteRegistry {
     return result;
   }
 
+  /**
+   * Try to acquire an exclusive lock on a lane segment. Returns 
+   * true if we got it (free, expired, or already ours).
+   */
+  lockSegment(
+    fromWaypointId: string,
+    toWaypointId: string,
+    robotId: string
+  ): boolean {
+    const key = segmentKey(fromWaypointId, toWaypointId);
+    const existing = this.segmentLocks.get(key);
+    const now = Date.now();
+
+    if (!existing || existing.expiresAt < now) {
+      this.segmentLocks.set(key, {
+        robotId,
+        expiresAt: now + LOCK_TTL_MS,
+      });
+      return true;
+    }
+    return existing.robotId === robotId;
+  }
+
+  refreshSegmentLock(
+    fromWaypointId: string,
+    toWaypointId: string,
+    robotId: string
+  ): void {
+    const key = segmentKey(fromWaypointId, toWaypointId);
+    const existing = this.segmentLocks.get(key);
+    if (existing && existing.robotId === robotId) {
+      existing.expiresAt = Date.now() + LOCK_TTL_MS;
+    }
+  }
+
+  releaseSegment(
+    fromWaypointId: string,
+    toWaypointId: string,
+    robotId: string
+  ): void {
+    const key = segmentKey(fromWaypointId, toWaypointId);
+    const existing = this.segmentLocks.get(key);
+    if (existing && existing.robotId === robotId) {
+      this.segmentLocks.delete(key);
+    }
+  }
+
+  /**
+   * Returns the robot ID currently holding the segment lock, or 
+   * null if free/expired.
+   */
+  segmentOwner(
+    fromWaypointId: string,
+    toWaypointId: string
+  ): string | null {
+    const key = segmentKey(fromWaypointId, toWaypointId);
+    const existing = this.segmentLocks.get(key);
+    if (!existing) return null;
+    if (existing.expiresAt < Date.now()) {
+      this.segmentLocks.delete(key);
+      return null;
+    }
+    return existing.robotId;
+  }
+
+  /**
+   * Release all waypoint and segment reservations for a robot.
+   */
+  clearRobotReservations(robotId: string): void {
+    for (const [wpId, lock] of this.locks.entries()) {
+      if (lock.robotId === robotId) {
+        this.locks.delete(wpId);
+      }
+    }
+    for (const [key, lock] of this.segmentLocks.entries()) {
+      if (lock.robotId === robotId) {
+        this.segmentLocks.delete(key);
+      }
+    }
+  }
+
   /** Housekeeping: expire stale publications. Call ~1 Hz. */
   tick(): void {
     const now = Date.now();
@@ -132,6 +217,11 @@ class RouteRegistry {
         this.locks.delete(wpId);
       }
     }
+    for (const [key, lock] of this.segmentLocks.entries()) {
+      if (lock.expiresAt < now) {
+        this.segmentLocks.delete(key);
+      }
+    }
   }
 
   /** Number of active locks (for diagnostics). */
@@ -139,10 +229,15 @@ class RouteRegistry {
     return this.locks.size;
   }
 
+  segmentLockCount(): number {
+    return this.segmentLocks.size;
+  }
+
   /** Wipe everything (used on simulation reset). */
   clear(): void {
     this.publications.clear();
     this.locks.clear();
+    this.segmentLocks.clear();
   }
 }
 

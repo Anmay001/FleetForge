@@ -35,6 +35,7 @@ const RobotStatusEnum = z.enum([
   'GOING_TO_CHARGE',
   'OBSTACLE_DETECTED',
   'WAITING',
+  'YIELDING',
 ]);
 
 const EventTypeEnum = z.enum(['INFO', 'WARN', 'DANGER', 'SUCCESS']);

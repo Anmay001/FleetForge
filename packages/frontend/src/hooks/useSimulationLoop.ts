@@ -16,6 +16,8 @@ import {
   robotsShouldYield,
   robotsOverlap,
   AMR_SAFE_DISTANCE,
+  timeToConflict,
+  speedScaleFromConflict,
 } from '@fleetforge/shared';
 
 const WAYPOINT_MAP: Record<string, { x: number; z: number }> =
@@ -29,11 +31,13 @@ const DECEL = 0.8;              // was 1.5 — smoother stops
 const COORD_TICK_MS = 200;      // 5 Hz decision loop
 const WAIT_TIMEOUT_MS = 6000;   // force replan after 6s blocked
 const REPLAN_COOLDOWN_MS = 1500;
+const LOOKAHEAD_SECONDS = 1.5;
+const CONFLICT_SAFE_DISTANCE = 0.9;
 
 // -------- Phase tracking --------
 interface RobotPhase {
   phase:
-    | 'IDLE' | 'MOVING' | 'WAITING' | 'ALIGNING'
+    | 'IDLE' | 'MOVING' | 'WAITING' | 'YIELDING' | 'ALIGNING'
     | 'PICKING_UP' | 'DROPPING' | 'CHARGING' | 'OBSTACLE';
   phaseStartedAt: number;
   currentWaypointId: string | null;
@@ -114,6 +118,10 @@ function planAndReserve(
   // Lock current position too
   routeRegistry.lockWaypoint(startId, robot.id);
 
+  // Reserve the first lane segment too. If another robot holds it, 
+  // we still plan but must wait before entering.
+  routeRegistry.lockSegment(startId, nextId, robot.id);
+
   phase.path = path;
   phase.currentWaypointId = startId;
   phase.nextWaypointId = nextId;
@@ -134,18 +142,24 @@ function advanceAlongPath(
 ): 'continue' | 'arrived' | 'blocked' {
   if (!phase.nextWaypointId || !phase.path) return 'arrived';
 
+  const traversedFrom = phase.currentWaypointId;
+  const traversedTo = phase.nextWaypointId;
+
   // Deposit pheromone on the segment just traversed
-  if (phase.currentWaypointId && phase.nextWaypointId) {
+  if (traversedFrom && traversedTo) {
     pheromoneMap.deposit(
-      phase.currentWaypointId, phase.nextWaypointId
+      traversedFrom, traversedTo
     );
   }
 
+  // Release the segment we just traversed
+  if (traversedFrom && traversedTo) {
+    routeRegistry.releaseSegment(traversedFrom, traversedTo, robot.id);
+  }
+
   // Release the waypoint we just left
-  if (phase.currentWaypointId) {
-    routeRegistry.releaseWaypoint(
-      phase.currentWaypointId, robot.id
-    );
+  if (traversedFrom) {
+    routeRegistry.releaseWaypoint(traversedFrom, robot.id);
   }
 
   // Advance: current becomes next, trim path
@@ -161,8 +175,18 @@ function advanceAlongPath(
     return 'arrived';
   }
 
-  // Try to lock the new next waypoint
+  // Check segment ownership before committing to move into it
   const newNext = remaining[1];
+  const prevWp = phase.currentWaypointId ?? '';
+  const segmentOwner = routeRegistry.segmentOwner(prevWp, newNext);
+  if (segmentOwner !== null && segmentOwner !== robot.id) {
+    phase.nextWaypointId = null;
+    phase.waitingSince = nowMs;
+    return 'blocked';
+  }
+  routeRegistry.lockSegment(prevWp, newNext, robot.id);
+
+  // Try to lock the new next waypoint
   if (!routeRegistry.lockWaypoint(newNext, robot.id)) {
     phase.nextWaypointId = null;
     phase.waitingSince = nowMs;
@@ -218,9 +242,7 @@ function runCoordinator(
     // destination on the next tick.
     if (phase.blockedSince > 0 && nowMs - phase.blockedSince > 4000) {
       // Release any held reservations
-      if (phase.currentWaypointId) {
-        routeRegistry.releaseWaypoint(phase.currentWaypointId, robot.id);
-      }
+      routeRegistry.clearRobotReservations(robot.id);
       routeRegistry.unpublish(robot.id);
 
       // Reset phase
@@ -288,6 +310,18 @@ function runCoordinator(
             ? 'CARRYING' : 'MOVING_TO_PICKUP',
         });
       } else if (result === 'arrived') {
+        // Release all remaining segment locks held by this robot
+        if (phase.currentWaypointId) {
+          const storedPath = phase.path;
+          if (storedPath && storedPath.length > 1) {
+            routeRegistry.releaseSegment(
+              storedPath[0],
+              storedPath[1],
+              robot.id
+            );
+          }
+        }
+
         // Decide terminal phase
         const destId = phase.destinationId ?? '';
         const isCharger = CHARGING_PADS.some(
@@ -332,20 +366,25 @@ function runCoordinator(
       if (phase.waitingSince === 0) phase.waitingSince = nowMs;
       const waited = nowMs - phase.waitingSince;
 
-      // Try again to lock the next waypoint
+      // Try again to lock the next waypoint and segment
       if (phase.path && phase.path.length >= 2) {
         const newNext = phase.path[1];
-        if (routeRegistry.lockWaypoint(newNext, robot.id)) {
-          phase.nextWaypointId = newNext;
-          routeRegistry.publish(robot.id, phase.path, newNext);
-          phase.waitingSince = 0;
-          phase.phase = 'MOVING';
-          phase.phaseStartedAt = nowMs;
-          useFleetStore.getState().updateRobot(robot.id, {
-            status: robot.payload !== null
-              ? 'CARRYING' : 'MOVING_TO_PICKUP',
-          });
-          continue;
+        const prevWp = phase.currentWaypointId ?? '';
+        const segmentOwner = routeRegistry.segmentOwner(prevWp, newNext);
+        if (segmentOwner === null || segmentOwner === robot.id) {
+          routeRegistry.lockSegment(prevWp, newNext, robot.id);
+          if (routeRegistry.lockWaypoint(newNext, robot.id)) {
+            phase.nextWaypointId = newNext;
+            routeRegistry.publish(robot.id, phase.path, newNext);
+            phase.waitingSince = 0;
+            phase.phase = 'MOVING';
+            phase.phaseStartedAt = nowMs;
+            useFleetStore.getState().updateRobot(robot.id, {
+              status: robot.payload !== null
+                ? 'CARRYING' : 'MOVING_TO_PICKUP',
+            });
+            continue;
+          }
         }
       }
 
@@ -357,11 +396,7 @@ function runCoordinator(
           type: 'WARN',
         });
         // Release everything we hold
-        if (phase.currentWaypointId) {
-          routeRegistry.releaseWaypoint(
-            phase.currentWaypointId, robot.id
-          );
-        }
+        routeRegistry.clearRobotReservations(robot.id);
         routeRegistry.unpublish(robot.id);
 
         // Re-lock current position
@@ -557,11 +592,108 @@ function findBlocker(
   return null;
 }
 
+/**
+ * Compute the yield target for a robot that's backing up to clear 
+ * the lane. Returns the previous waypoint's position, or null if 
+ * no valid target exists.
+ */
+function computeYieldTarget(
+  phase: RobotPhase
+): { x: number; z: number } | null {
+  if (!phase.currentWaypointId) return null;
+  const wp = WAYPOINT_MAP[phase.currentWaypointId];
+  if (!wp) return null;
+  return { x: wp.x, z: wp.z };
+}
+
 function applyMotion(
   robot: AMR,
   phase: RobotPhase,
   dtSec: number
 ): void {
+  // ===== YIELDING: back up toward the previous waypoint =====
+  if (phase.phase === 'YIELDING') {
+    const target = computeYieldTarget(phase);
+    if (!target) {
+      phase.phase = 'MOVING';
+      phase.blockedSince = 0;
+      return;
+    }
+
+    const dx = target.x - robot.position.x;
+    const dz = target.z - robot.position.z;
+    const dist = Math.hypot(dx, dz);
+
+    // Reached the yield point — hold and wait for the blocker to 
+    // clear
+    if (dist < ARRIVAL_TOL) {
+      phase.phase = 'WAITING';
+      phase.phaseStartedAt = performance.now();
+      useFleetStore.getState().updateRobot(robot.id, {
+        speed: 0,
+        status: 'WAITING',
+      });
+      return;
+    }
+
+    // Back up slowly
+    const YIELD_SPEED = 0.4;
+    const step = Math.min(YIELD_SPEED * dtSec, dist);
+    const nx = robot.position.x + (dx / dist) * step;
+    const nz = robot.position.z + (dz / dist) * step;
+
+    // Same physical checks as forward motion — no rack, no AMR 
+    // overlap during the yield either
+    const rackHit = segmentHitsRack(
+      robot.position.x,
+      robot.position.z,
+      nx,
+      nz
+    );
+    if (rackHit !== null) {
+      // Can't back up — abort yield, go straight to WAITING
+      phase.phase = 'WAITING';
+      phase.phaseStartedAt = performance.now();
+      useFleetStore.getState().updateRobot(robot.id, {
+        speed: 0,
+        status: 'WAITING',
+      });
+      return;
+    }
+
+    // Check for AMRs behind us — if the yield target is occupied, 
+    // stop here and wait
+    const allRobots = useFleetStore.getState().robots;
+    for (const other of allRobots) {
+      if (other.id === robot.id) continue;
+      const odx = other.position.x - nx;
+      const odz = other.position.z - nz;
+      if (Math.hypot(odx, odz) < AMR_SAFE_DISTANCE) {
+        // Don't back into another AMR
+        phase.phase = 'WAITING';
+        phase.phaseStartedAt = performance.now();
+        useFleetStore.getState().updateRobot(robot.id, {
+          speed: 0,
+          status: 'WAITING',
+        });
+        return;
+      }
+    }
+
+    // Commit the backward step. distanceTravelled increments by 
+    // half the step — we don't want to reward retreat as much as 
+    // forward progress.
+    useFleetStore.getState().updateRobot(robot.id, {
+      position: { x: nx, y: 0, z: nz },
+      speed: YIELD_SPEED,
+      distanceTravelled: robot.distanceTravelled + step * 0.5,
+      battery: Math.max(0, robot.battery - 0.01 * dtSec),
+      status: 'YIELDING',
+    });
+
+    return;
+  }
+
   if (phase.phase !== 'MOVING') return;
   if (!phase.nextWaypointId) return;
   if (phase.reachedTarget) return;
@@ -583,8 +715,53 @@ function applyMotion(
     return;
   }
 
+  // --- Lookahead velocity obstacle check ---
+  // Predict whether we'll conflict with another moving AMR within 
+  // the horizon. If so, scale our target speed down proportionally 
+  // so we decelerate smoothly instead of stopping dead.
+  const allRobotsNow = useFleetStore.getState().robots;
+  const selfVelX = (dx / dist) * robot.speed;
+  const selfVelZ = (dz / dist) * robot.speed;
+
+  let minTTC: number | null = null;
+  for (const other of allRobotsNow) {
+    if (other.id === robot.id) continue;
+
+    // Estimate other robot's velocity toward its target
+    const odx = other.targetPosition.x - other.position.x;
+    const odz = other.targetPosition.z - other.position.z;
+    const odist = Math.hypot(odx, odz);
+    const otherVelX = odist > 0.01
+      ? (odx / odist) * other.speed
+      : 0;
+    const otherVelZ = odist > 0.01
+      ? (odz / odist) * other.speed
+      : 0;
+
+    const ttc = timeToConflict(
+      { x: robot.position.x, z: robot.position.z,
+        vx: selfVelX, vz: selfVelZ },
+      { x: other.position.x, z: other.position.z,
+        vx: otherVelX, vz: otherVelZ },
+      LOOKAHEAD_SECONDS,
+      CONFLICT_SAFE_DISTANCE
+    );
+    if (ttc !== null && (minTTC === null || ttc < minTTC)) {
+      minTTC = ttc;
+    }
+  }
+
+  // If no conflict, scale is 1; if conflict, smooth deceleration
+  const conflictScale = speedScaleFromConflict(minTTC, LOOKAHEAD_SECONDS);
+
   let newSpeed = robot.speed + ACCEL * dtSec;
   if (dist < 1.0) newSpeed = robot.speed - DECEL * dtSec;
+
+  // Apply the conflict-driven speed cap. If we have a predicted 
+  // conflict, don't let our speed exceed scale × MAX_SPEED.
+  const speedCap = MAX_SPEED * conflictScale;
+  if (newSpeed > speedCap) newSpeed = speedCap;
+
   newSpeed = Math.max(0, Math.min(MAX_SPEED, newSpeed));
 
   const step = Math.min(newSpeed * dtSec, dist);
@@ -623,10 +800,26 @@ function applyMotion(
     if (phase.blockedSince === 0) {
       phase.blockedSince = nowMs;
     }
-    useFleetStore.getState().updateRobot(robot.id, {
-      speed: 0,
-      status: 'WAITING',
-    });
+
+    // Give H2.1's lookahead 500ms to resolve the conflict before 
+    // we commit to yielding.
+    const timeBlocked = nowMs - phase.blockedSince;
+    if (timeBlocked > 500 && phase.currentWaypointId) {
+      // Enter active yielding — back up toward the previous waypoint
+      phase.phase = 'YIELDING';
+      phase.phaseStartedAt = nowMs;
+      useFleetStore.getState().updateRobot(robot.id, {
+        status: 'YIELDING',
+      });
+    } else {
+      // Brief wait — the lookahead may resolve this
+      useFleetStore.getState().updateRobot(robot.id, {
+        speed: 0,
+        status: 'WAITING',
+      });
+      phase.phase = 'WAITING';
+      phase.phaseStartedAt = nowMs;
+    }
     return;
   }
 

@@ -173,3 +173,84 @@ export function nearestRackDistance(x: number, z: number): number {
   }
   return min;
 }
+
+/**
+ * Detect whether two moving bodies will come within `safeDist` of 
+ * each other within `horizonSeconds`. Uses constant-velocity 
+ * assumption — good enough at 30 Hz for slow-moving AMRs.
+ *
+ * @param self   position + velocity of the observing robot
+ * @param other  position + velocity of the other robot
+ * @param horizonSeconds  how far into the future to look
+ * @param safeDist  minimum allowed separation
+ * @returns time-to-conflict in seconds, or null if no conflict
+ *          is predicted within the horizon
+ */
+export function timeToConflict(
+  self: { x: number; z: number; vx: number; vz: number },
+  other: { x: number; z: number; vx: number; vz: number },
+  horizonSeconds: number,
+  safeDist: number
+): number | null {
+  // Relative position and velocity
+  const rpx = other.x - self.x;
+  const rpz = other.z - self.z;
+  const rvx = other.vx - self.vx;
+  const rvz = other.vz - self.vz;
+
+  const rvSq = rvx * rvx + rvz * rvz;
+
+  // If neither is moving relative to the other, just check current 
+  // separation
+  if (rvSq < 1e-6) {
+    return Math.hypot(rpx, rpz) < safeDist ? 0 : null;
+  }
+
+  // Time of closest approach along the relative motion vector
+  const tClosest = -(rpx * rvx + rpz * rvz) / rvSq;
+
+  // Closest approach is in the past — no future conflict
+  if (tClosest < 0) return null;
+
+  // Position at closest approach
+  const cx = rpx + rvx * tClosest;
+  const cz = rpz + rvz * tClosest;
+  const closestDist = Math.hypot(cx, cz);
+
+  if (closestDist >= safeDist) return null;
+
+  // Time when bodies first enter the safeDist radius
+  // (rpx + rvx * t)^2 + (rpz + rvz * t)^2 = safeDist^2
+  // Along the line of motion, offset from tClosest is sqrt(safeDist^2 - closestDist^2) / |rv|
+  const halfChordSq = safeDist * safeDist - closestDist * closestDist;
+  const dtEnter = Math.sqrt(Math.max(0, halfChordSq)) / Math.sqrt(rvSq);
+  const tConflict = Math.max(0, tClosest - dtEnter);
+
+  // Conflict only counts if it happens within our horizon
+  if (tConflict > horizonSeconds) return null;
+
+  return tConflict;
+}
+
+/**
+ * Compute a speed multiplier in [0, 1] based on the nearest predicted 
+ * conflict. Returns 1 when the path is clear, drops toward 0 as a 
+ * conflict approaches.
+ *
+ * @param minTTC  minimum time-to-conflict across all other robots, 
+ *                or null if none predicted
+ * @param horizonSeconds  the lookahead horizon used for prediction
+ */
+export function speedScaleFromConflict(
+  minTTC: number | null,
+  horizonSeconds: number
+): number {
+  if (minTTC === null) return 1;
+  if (minTTC <= 0) return 0.15;    // already conflicting — slow crawl
+  if (minTTC >= horizonSeconds) return 1;
+
+  // Linear ramp: full speed at horizon edge, 0.15 at zero
+  const ratio = minTTC / horizonSeconds;
+  return 0.15 + 0.85 * ratio;
+}
+

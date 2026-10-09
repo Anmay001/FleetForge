@@ -9,6 +9,19 @@ import {
   TONE_BG, TONE_HEX, TONE_TEXT, batteryLabel, statusLabel,
   toneOfBattery, toneOfStatus,
 } from '../common/status';
+import { AMR } from '@fleetforge/shared';
+
+function lastCommand(robot: AMR): string {
+  if (robot.isEmergencyStopped) return 'E-STOP';
+  if (robot.status === 'YIELDING') return 'YIELD';
+  if (robot.status === 'WAITING') return 'WAIT';
+  if (robot.status === 'GOING_TO_CHARGE') return 'CHARGE';
+  if (robot.status === 'PICKING_UP' || robot.status === 'ALIGNING') return 'PICK';
+  if (robot.status === 'DROPPING') return 'DROP';
+  if (robot.status === 'CARRYING' || robot.status === 'MOVING_TO_PICKUP') return 'MOVE';
+  if (robot.status === 'OBSTACLE_DETECTED') return 'HOLD';
+  return 'IDLE';
+}
 
 export default function TelemetryInspector() {
   const robots = useFleetStore((s) => s.robots);
@@ -126,6 +139,7 @@ export default function TelemetryInspector() {
         <Section title="Mission" compact={compact}>
           <Field label="Current task" value={robot.currentTask ?? '—'} compact={compact} />
           <Field label="Destination" value={robot.destination} compact={compact} />
+          <Field label="Last command" value={lastCommand(robot)} compact={compact} />
           {robot.payload !== null && (
             <Field label="Payload" value={robot.payload} compact={compact} />
           )}

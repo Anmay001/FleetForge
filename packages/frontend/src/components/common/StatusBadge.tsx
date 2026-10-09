@@ -7,7 +7,7 @@ export interface StatusBadgeProps {
 }
 
 /** Statuses an operator must notice — the dot pulses until cleared. */
-const PULSING = new Set(['OBSTACLE_DETECTED', 'DANGER', 'WARN']);
+const PULSING = new Set(['OBSTACLE_DETECTED', 'DANGER', 'WARN', 'YIELDING']);
 
 export default function StatusBadge({ status, size = 'md' }: StatusBadgeProps) {
   const tone = toneOfStatus(status);

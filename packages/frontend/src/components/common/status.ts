@@ -64,6 +64,7 @@ const STATUS_TONE: Record<string, Tone> = {
   DROPPING: 'info',
   GOING_TO_CHARGE: 'charge',
   WAITING: 'warn',
+  YIELDING: 'warn',
   WARN: 'warn',
   QUEUED: 'warn',
   OBSTACLE_DETECTED: 'danger',

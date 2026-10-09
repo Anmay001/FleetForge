@@ -10,6 +10,8 @@ import {
   robotsOverlap,
   robotsShouldYield,
   nearestRackDistance,
+  timeToConflict,
+  speedScaleFromConflict,
 } from '@fleetforge/shared';
 
 describe('collision primitives', () => {
@@ -102,4 +104,98 @@ describe('collision primitives', () => {
     // Lane intersection at (10, 10) is between racks — positive distance
     expect(nearestRackDistance(10, 10)).toBeGreaterThan(0);
   });
+
+  describe('timeToConflict', () => {
+    it('returns null when both bodies are stationary and far apart', () => {
+      const t = timeToConflict(
+        { x: 0, z: 0, vx: 0, vz: 0 },
+        { x: 10, z: 10, vx: 0, vz: 0 },
+        2,
+        0.9
+      );
+      expect(t).toBeNull();
+    });
+
+    it('returns 0 when already within safe distance and stationary', () => {
+      const t = timeToConflict(
+        { x: 0, z: 0, vx: 0, vz: 0 },
+        { x: 0.5, z: 0, vx: 0, vz: 0 },
+        2,
+        0.9
+      );
+      expect(t).toBe(0);
+    });
+
+    it('predicts a head-on collision', () => {
+      // Self at (0,0) moving +x at 1 m/s
+      // Other at (5,0) moving -x at 1 m/s
+      // Closing speed 2 m/s, gap 5 m → contact at t=2.5 if safeDist=0
+      // With safeDist 0.9, conflict at t ≈ (5 - 0.9) / 2 = 2.05
+      const t = timeToConflict(
+        { x: 0, z: 0, vx: 1, vz: 0 },
+        { x: 5, z: 0, vx: -1, vz: 0 },
+        3,
+        0.9
+      );
+      expect(t).not.toBeNull();
+      expect(t!).toBeGreaterThan(1.9);
+      expect(t!).toBeLessThan(2.2);
+    });
+
+    it('returns null when a conflict would happen past the horizon', () => {
+      // Contact at t≈2.05 but horizon is only 1 second
+      const t = timeToConflict(
+        { x: 0, z: 0, vx: 1, vz: 0 },
+        { x: 5, z: 0, vx: -1, vz: 0 },
+        1,
+        0.9
+      );
+      expect(t).toBeNull();
+    });
+
+    it('returns null for parallel motion with steady gap', () => {
+      const t = timeToConflict(
+        { x: 0, z: 0, vx: 1, vz: 0 },
+        { x: 3, z: 0, vx: 1, vz: 0 },
+        2,
+        0.9
+      );
+      expect(t).toBeNull();
+    });
+
+    it('detects a side-on conflict', () => {
+      // Self at (0, 0) moving +x at 1 m/s
+      // Other at (2, 1.5) moving 0 m/s
+      // At t=2, self is at (2, 0). Distance to other = 1.5 > 0.9 → no conflict
+      // Adjust: other at (2, 0.5). At t=2, dist = 0.5 < 0.9 → conflict
+      const t = timeToConflict(
+        { x: 0, z: 0, vx: 1, vz: 0 },
+        { x: 2, z: 0.5, vx: 0, vz: 0 },
+        3,
+        0.9
+      );
+      expect(t).not.toBeNull();
+    });
+  });
+
+  describe('speedScaleFromConflict', () => {
+    it('returns 1 when no conflict', () => {
+      expect(speedScaleFromConflict(null, 1.5)).toBe(1);
+    });
+
+    it('returns near 0 when conflict is imminent', () => {
+      expect(speedScaleFromConflict(0, 1.5)).toBeLessThan(0.2);
+    });
+
+    it('returns 1 at the horizon edge', () => {
+      expect(speedScaleFromConflict(1.5, 1.5)).toBeCloseTo(1, 5);
+    });
+
+    it('returns roughly 0.5 at half the horizon', () => {
+      const s = speedScaleFromConflict(0.75, 1.5);
+      expect(s).toBeGreaterThan(0.4);
+      expect(s).toBeLessThan(0.7);
+    });
+  });
 });
+

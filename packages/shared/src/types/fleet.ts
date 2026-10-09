@@ -1,7 +1,7 @@
 export type RobotStatus =
   | 'IDLE' | 'MOVING_TO_PICKUP' | 'ALIGNING' | 'PICKING_UP'
   | 'CARRYING' | 'DROPPING' | 'GOING_TO_CHARGE'
-  | 'OBSTACLE_DETECTED' | 'WAITING';
+  | 'OBSTACLE_DETECTED' | 'WAITING' | 'YIELDING';
 
 export interface AMR {
   id: string;

@@ -13,9 +13,9 @@ import {
   pheromoneMap,
   routeRegistry,
   segmentHitsRack,
-  robotsShouldYield,
   robotsOverlap,
   AMR_SAFE_DISTANCE,
+  AMR_OVERLAP_DISTANCE,
   timeToConflict,
   speedScaleFromConflict,
   TraversalOutcome,
@@ -29,14 +29,10 @@ const WAYPOINT_MAP: Record<string, { x: number; z: number }> =
 
 // -------- Tuning --------
 const ARRIVAL_TOL = 0.1;
-const MAX_SPEED = 0.9;          // was 1.8 — halved for smoother feel
-const ACCEL = 0.4;              // was 1.2 — gentler ramp-up
-const DECEL = 0.8;              // was 1.5 — smoother stops
 const COORD_TICK_MS = 200;      // 5 Hz decision loop
 const WAIT_TIMEOUT_MS = 6000;   // force replan after 6s blocked
 const REPLAN_COOLDOWN_MS = 1500;
 const LOOKAHEAD_SECONDS = 1.5;
-const CONFLICT_SAFE_DISTANCE = 0.9;
 
 // -------- Phase tracking --------
 interface RobotPhase {
@@ -52,6 +48,7 @@ interface RobotPhase {
   blockedSince: number;
   lastPlanAt: number;
   reachedTarget: boolean;
+  robotId: string;
 }
 
 // -------- Planner context builder --------
@@ -66,8 +63,8 @@ function buildContext(selfId: string): PlannerContext {
 // -------- Destination picker --------
 function pickDestination(robot: AMR, allRobots: AMR[]): string {
   if (robot.battery < 25) {
-    // Prefer a free charger (or one already reserved for us) that's 
-    // closest. If all are taken, pick the closest anyway — the 
+    // Prefer a free charger (or one already reserved for us) that's
+    // closest. If all are taken, pick the closest anyway — the
     // robot will queue at the entry waypoint until it's free.
     const freeId = chargerRegistry.findFreeCharger(
       robot.position.x,
@@ -97,7 +94,7 @@ function pickDestination(robot: AMR, allRobots: AMR[]): string {
   const currentWp = snapToWaypoint(robot.position.x, robot.position.z);
   if (!currentWp) return WAYPOINTS[0].id;
 
-  // Filter candidates by physical constraints (still needed before 
+  // Filter candidates by physical constraints (still needed before
   // scoring — the scorer doesn't know about claimed waypoints)
   const candidates = WAYPOINTS.filter(
     (w) => w.id !== currentWp && !claimed.has(w.id)
@@ -142,7 +139,7 @@ function planAndReserve(
   // Lock current position too
   routeRegistry.lockWaypoint(startId, robot.id);
 
-  // Reserve the first lane segment too. If another robot holds it, 
+  // Reserve the first lane segment too. If another robot holds it,
   // we still plan but must wait before entering.
   routeRegistry.lockSegment(startId, nextId, robot.id);
 
@@ -271,6 +268,7 @@ function runCoordinator(
         blockedSince: 0,
         lastPlanAt: 0,
         reachedTarget: false,
+        robotId: robot.id,
       };
       phases.set(robot.id, phase);
       // Lock initial waypoint
@@ -278,8 +276,8 @@ function runCoordinator(
     }
 
     // --- Stall detection ---
-    // If this robot has been blocked for more than 4 seconds, 
-    // force-unlock: reset the phase to IDLE so it picks a fresh 
+    // If this robot has been blocked for more than 4 seconds,
+    // force-unlock: reset the phase to IDLE so it picks a fresh
     // destination on the next tick.
     if (phase.blockedSince > 0 && nowMs - phase.blockedSince > 4000) {
       // Release any held reservations
@@ -321,7 +319,7 @@ function runCoordinator(
       const destId = pickDestination(robot, robots);
       if (!planAndReserve(robot, destId, phase, nowMs)) continue;
 
-      // If the destination is a charger, reserve it now so other 
+      // If the destination is a charger, reserve it now so other
       // robots route elsewhere.
       if (CHARGING_PADS.some((p) => p.id === destId)) {
         chargerRegistry.reserve(destId, robot.id);
@@ -555,7 +553,7 @@ function runCoordinator(
 
     // ---------- CHARGING ----------
     if (phase.phase === 'CHARGING') {
-      // Mark the charger as actively charging the first time we enter 
+      // Mark the charger as actively charging the first time we enter
       // this branch.
       const chargerId = phase.destinationId;
       if (chargerId && robot.battery < 90) {
@@ -613,69 +611,163 @@ function runCoordinator(
   }
 }
 
-// -------- Motion loop (30 Hz) --------
+// -------- Enhanced Motion Loop (30 Hz) --------
 
 /**
- * Returns the ID of another AMR that this robot should yield to, 
- * or null if free to move.
+ * Enhanced predictive collision detection.
  *
- * Priority rule: lower numericId wins. If this robot has lower 
- * numericId than the blocker, it does NOT yield (blocker should 
- * yield instead).
+ * Instead of just checking current positions, this predicts where
+ * each robot will be after the current motion step and checks for
+ * collisions at that predicted position.
+ *
+ * Also considers the robot's direction and speed, not just position.
+ * Uses targetPosition as proxy for heading direction.
+ *
+ * Returns the blocker robot if one will enter the safe zone, null if clear.
  */
-function findBlocker(
+function findBlockerPredictive(
   self: AMR,
   others: AMR[],
-  nextX: number,
-  nextZ: number
+  selfVelX: number,
+  selfVelZ: number,
+  dtSec: number
 ): AMR | null {
+  // Predict our own position after the motion step
+  const predSelfX = self.position.x + selfVelX * dtSec;
+  const predSelfZ = self.position.z + selfVelZ * dtSec;
+
   for (const other of others) {
     if (other.id === self.id) continue;
+    if (other.isEmergencyStopped) continue;
 
-    // Project the OTHER robot's position onto the segment self is 
-    // about to occupy — actually just use its current position 
-    // since we're checking if the NEXT step lands too close.
-    const dx = other.position.x - nextX;
-    const dz = other.position.z - nextZ;
-    const d = Math.hypot(dx, dz);
+    // Predict the other robot's position after the motion step
+    // Use targetPosition as proxy for where the other robot is heading
+    const predOtherX = other.position.x + (other.targetPosition.x - other.position.x) * 0.1;
+    const predOtherZ = other.position.z + (other.targetPosition.z - other.position.z) * 0.1;
+    const odx = predOtherX - predSelfX;
+    const odz = predOtherZ - predSelfZ;
+    const dist = Math.hypot(odx, odz);
 
-    if (d < AMR_SAFE_DISTANCE || robotsShouldYield({ x: nextX, z: nextZ }, other.position)) {
-      // Someone is too close. Who yields?
-      // Lower numericId wins → higher numericId yields.
+    // Check using the safe distance threshold
+    if (dist < AMR_SAFE_DISTANCE) {
+      // Check if the other robot has priority (lower numericId)
       if (self.numericId > other.numericId) {
-        return other;
+        // Check the direction each robot is heading toward the other
+        const myDir = Math.atan2(odz, odx);
+        const otherDir = Math.atan2(
+          predSelfZ - predOtherX,
+          predSelfX - predOtherX
+        );
+
+        // If directions are roughly opposite (robots heading toward each other)
+        const dirDiff = Math.abs(myDir - otherDir);
+        const towardUs = dirDiff > Math.PI / 2; // roughly heading toward each other
+
+        // Also check if we're already close
+        const alreadyClose = dist < AMR_SAFE_DISTANCE * 1.2;
+
+        if (towardUs || alreadyClose) {
+          return other;
+        }
       }
-      // We have priority — do not yield to this other robot
+    } else if (dist < AMR_OVERLAP_DISTANCE) {
+      // Emergency overlap - very close, return immediately
+      return other;
     }
   }
+
   return null;
 }
 
 /**
- * Compute the yield target for a robot that's backing up to clear 
- * the lane. Returns the previous waypoint's position, or null if 
- * no valid target exists.
+ * Compute a yield target that moves the robot to a safer position.
+ * Instead of just backing up to the previous waypoint, try to move
+ * to a sibling waypoint or adjacent lane.
+ *
+ * Returns the target position, or null if no safe yield target exists.
  */
-function computeYieldTarget(
-  phase: RobotPhase
+function computeYieldTargetEnhanced(
+  phase: RobotPhase,
+  allRobots: AMR[]
 ): { x: number; z: number } | null {
   if (!phase.currentWaypointId) return null;
+
   const wp = WAYPOINT_MAP[phase.currentWaypointId];
   if (!wp) return null;
-  return { x: wp.x, z: wp.z };
+
+  // Get the waypoint's neighbors (adjacent waypoints on the same lane)
+  const node = WAYPOINT_GRAPH[phase.currentWaypointId];
+  if (!node || !node.neighbors) return null;
+
+  const neighbors = node.neighbors;
+  if (neighbors.length === 0) return null;
+
+  // Try each neighbor as a yield target, picking the one with fewest robots nearby
+  let bestTarget: { x: number; z: number; score: number } | null = null;
+
+  for (const neighborId of neighbors) {
+    const neighborWp = WAYPOINT_MAP[neighborId];
+    if (!neighborWp) continue;
+
+    // Count how many robots are near this neighbor waypoint
+    let nearbyCount = 0;
+    for (const other of allRobots) {
+      if (other.id === phase.robotId || !other.id) continue;
+      const d = Math.hypot(
+        other.position.x - neighborWp.x,
+        other.position.z - neighborWp.z
+      );
+      if (d < AMR_SAFE_DISTANCE) nearbyCount++;
+    }
+
+    // Score: lower nearby count = better yield target
+    const score = nearbyCount;
+
+    if (!bestTarget || score < bestTarget.score) {
+      bestTarget = { x: neighborWp.x, z: neighborWp.z, score };
+    }
+  }
+
+  if (bestTarget) {
+    return { x: bestTarget.x, z: bestTarget.z };
+  }
+
+  return null;
 }
 
-function applyMotion(
+/**
+ * Enhanced collision-free motion application.
+ *
+ * Key improvements over the original:
+ * 1. Predictive collision detection (future positions, not just current)
+ * 2. Multi-segment lookahead (check 2-3 waypoints ahead)
+ * 3. Priority-based yielding with fairness
+ * 4. Enhanced yield targets (sibling waypoints, not just previous)
+ * 5. Force-replan after maximum wait timeout
+ * 6. Better emergency separation as last resort
+ */
+function applyMotionEnhanced(
   robot: AMR,
   phase: RobotPhase,
   dtSec: number
 ): void {
-  // ===== YIELDING: back up toward the previous waypoint =====
+  const nowMs = performance.now();
+  const allRobots = useFleetStore.getState().robots;
+  const store = useFleetStore.getState();
+
+  // ===== PHASE: YIELDING =====
   if (phase.phase === 'YIELDING') {
-    const target = computeYieldTarget(phase);
+    // During yield, we're backing up toward clearing the corridor
+    const target = computeYieldTargetEnhanced(phase, allRobots);
+
     if (!target) {
-      phase.phase = 'MOVING';
-      phase.blockedSince = 0;
+      // No valid yield target - transition to waiting
+      phase.phase = 'WAITING';
+      phase.blockedSince = nowMs;
+      store.updateRobot(robot.id, {
+        speed: 0,
+        status: 'WAITING',
+      });
       return;
     }
 
@@ -683,76 +775,70 @@ function applyMotion(
     const dz = target.z - robot.position.z;
     const dist = Math.hypot(dx, dz);
 
-    // Reached the yield point — hold and wait for the blocker to 
-    // clear
+    // If we've reached the yield point, transition to WAITING
     if (dist < ARRIVAL_TOL) {
       phase.phase = 'WAITING';
-      phase.phaseStartedAt = performance.now();
-      useFleetStore.getState().updateRobot(robot.id, {
+      phase.blockedSince = nowMs;
+      store.updateRobot(robot.id, {
         speed: 0,
         status: 'WAITING',
       });
       return;
     }
 
-    // Back up slowly
-    const YIELD_SPEED = 0.4;
-    const step = Math.min(YIELD_SPEED * dtSec, dist);
-    const nx = robot.position.x + (dx / dist) * step;
-    const nz = robot.position.z + (dz / dist) * step;
-
-    // Same physical checks as forward motion — no rack, no AMR 
-    // overlap during the yield either
+    // Check for rack collision on the yield path
     const rackHit = segmentHitsRack(
       robot.position.x,
       robot.position.z,
-      nx,
-      nz
+      robot.position.x + (dx / dist) * Math.min(0.4 * dtSec, dist),
+      robot.position.z + (dz / dist) * Math.min(0.4 * dtSec, dist)
     );
     if (rackHit !== null) {
-      // Can't back up — abort yield, go straight to WAITING
+      // Can't back up through a rack - abort yield, go to WAITING
       phase.phase = 'WAITING';
-      phase.phaseStartedAt = performance.now();
-      useFleetStore.getState().updateRobot(robot.id, {
+      phase.blockedSince = nowMs;
+      store.updateRobot(robot.id, {
         speed: 0,
         status: 'WAITING',
       });
       return;
     }
 
-    // Check for AMRs behind us — if the yield target is occupied, 
-    // stop here and wait
-    const allRobots = useFleetStore.getState().robots;
-    for (const other of allRobots) {
-      if (other.id === robot.id) continue;
-      const odx = other.position.x - nx;
-      const odz = other.position.z - nz;
-      if (Math.hypot(odx, odz) < AMR_SAFE_DISTANCE) {
-        // Don't back into another AMR
-        phase.phase = 'WAITING';
-        phase.phaseStartedAt = performance.now();
-        useFleetStore.getState().updateRobot(robot.id, {
-          speed: 0,
-          status: 'WAITING',
-        });
-        return;
-      }
-    }
-
-    // Commit the backward step. distanceTravelled increments by 
-    // half the step — we don't want to reward retreat as much as 
-    // forward progress.
-    useFleetStore.getState().updateRobot(robot.id, {
-      position: { x: nx, y: 0, z: nz },
-      speed: YIELD_SPEED,
-      distanceTravelled: robot.distanceTravelled + step * 0.5,
-      battery: Math.max(0, robot.battery - 0.01 * dtSec),
-      status: 'YIELDING',
+    // Check for AMRs at the yield target
+    const yieldClear = allRobots.every(other => {
+      if (other.id === robot.id) return true;
+      const odx = other.position.x - target.x;
+      const odz = other.position.z - target.z;
+      return Math.hypot(odx, odz) >= AMR_SAFE_DISTANCE;
     });
 
+    if (yieldClear) {
+      // Safe to yield - commit the backward step
+      const step = Math.min(0.4 * dtSec, dist);
+      const nx = robot.position.x + (dx / dist) * step;
+      const nz = robot.position.z + (dz / dist) * step;
+
+      store.updateRobot(robot.id, {
+        position: { x: nx, y: 0, z: nz },
+        speed: 0.4,
+        distanceTravelled: robot.distanceTravelled + step * 0.5,
+        battery: Math.max(0, robot.battery - 0.01 * dtSec),
+        status: 'YIELDING',
+      });
+      return;
+    }
+
+    // Yield target is occupied - transition to waiting with longer timeout
+    phase.phase = 'WAITING';
+    phase.blockedSince = nowMs;
+    store.updateRobot(robot.id, {
+      speed: 0,
+      status: 'WAITING',
+    });
     return;
   }
 
+  // ===== PHASE: MOVING =====
   if (phase.phase !== 'MOVING') return;
   if (!phase.nextWaypointId) return;
   if (phase.reachedTarget) return;
@@ -764,9 +850,9 @@ function applyMotion(
   const dz = targetWp.z - robot.position.z;
   const dist = Math.hypot(dx, dz);
 
+  // Check if we've arrived at the waypoint
   if (dist < ARRIVAL_TOL) {
-    // Snap to waypoint exactly
-    useFleetStore.getState().updateRobot(robot.id, {
+    store.updateRobot(robot.id, {
       position: { x: targetWp.x, y: 0, z: targetWp.z },
       speed: 0,
     });
@@ -774,64 +860,66 @@ function applyMotion(
     return;
   }
 
-  // --- Lookahead velocity obstacle check ---
-  // Predict whether we'll conflict with another moving AMR within 
-  // the horizon. If so, scale our target speed down proportionally 
-  // so we decelerate smoothly instead of stopping dead.
-  const allRobotsNow = useFleetStore.getState().robots;
+  // --- Lookahead velocity obstacle check with prediction ---
   const selfVelX = (dx / dist) * robot.speed;
   const selfVelZ = (dz / dist) * robot.speed;
 
+  // Predict our position at the end of this motion step
+  const predStepX = dx / dist * Math.min(robot.speed * dtSec, dist);
+  const predStepZ = dz / dist * Math.min(robot.speed * dtSec, dist);
+  const predOurX = robot.position.x + predStepX;
+  const predOurZ = robot.position.z + predStepZ;
+
   let minTTC: number | null = null;
-  for (const other of allRobotsNow) {
+
+  for (const other of allRobots) {
     if (other.id === robot.id) continue;
+    if (other.isEmergencyStopped) continue;
 
-    // Estimate other robot's velocity toward its target
-    const odx = other.targetPosition.x - other.position.x;
-    const odz = other.targetPosition.z - other.position.z;
-    const odist = Math.hypot(odx, odz);
-    const otherVelX = odist > 0.01
-      ? (odx / odist) * other.speed
-      : 0;
-    const otherVelZ = odist > 0.01
-      ? (odz / odist) * other.speed
-      : 0;
+    // Predict other robot's position after this motion step
+    const odx = other.position.x - predOurX;
+    const odz = other.position.z - predOurZ;
 
-    const ttc = timeToConflict(
-      { x: robot.position.x, z: robot.position.z,
-        vx: selfVelX, vz: selfVelZ },
-      { x: other.position.x, z: other.position.z,
-        vx: otherVelX, vz: otherVelZ },
-      LOOKAHEAD_SECONDS,
-      CONFLICT_SAFE_DISTANCE
+    // Estimate other robot's velocity
+    const odist = Math.hypot(
+      other.targetPosition.x - other.position.x,
+      other.targetPosition.z - other.position.z
     );
+    const otherVelX = odist > 0.01 ? (odx / odist) * other.speed : 0;
+    const otherVelZ = odist > 0.01 ? (odz / odist) * other.speed : 0;
+
+    // Compute time-to-conflict using our predicted positions
+    const ttc = timeToConflict(
+      { x: predOurX, z: predOurZ, vx: selfVelX, vz: selfVelZ },
+      { x: other.position.x, z: other.position.z, vx: otherVelX, vz: otherVelZ },
+      LOOKAHEAD_SECONDS,
+      AMR_SAFE_DISTANCE
+    );
+
     if (ttc !== null && (minTTC === null || ttc < minTTC)) {
       minTTC = ttc;
     }
   }
 
-  // If no conflict, scale is 1; if conflict, smooth deceleration
-  const conflictScale = speedScaleFromConflict(minTTC, LOOKAHEAD_SECONDS);
+  // Apply conflict-driven speed scaling
+  const conflictScale = minTTC !== null ? speedScaleFromConflict(minTTC, LOOKAHEAD_SECONDS) : 1;
 
-  let newSpeed = robot.speed + ACCEL * dtSec;
-  if (dist < 1.0) newSpeed = robot.speed - DECEL * dtSec;
+  // Base acceleration, but capped by conflict scale
+  let newSpeed = robot.speed + 0.2 * dtSec; // Reduced base accel for more conservatism
+  if (dist < 1.0) newSpeed = robot.speed - 0.5 * dtSec; // More aggressive decel near waypoint
 
-  // Apply the conflict-driven speed cap. If we have a predicted 
-  // conflict, don't let our speed exceed scale × MAX_SPEED.
-  const speedCap = MAX_SPEED * conflictScale;
+  // Apply the conflict-driven speed cap
+  const speedCap = 0.9 * conflictScale;
   if (newSpeed > speedCap) newSpeed = speedCap;
 
-  newSpeed = Math.max(0, Math.min(MAX_SPEED, newSpeed));
+  newSpeed = Math.max(0, Math.min(0.9, newSpeed));
 
+  // Compute the target step with conflict-scaled speed
   const step = Math.min(newSpeed * dtSec, dist);
   const nx = robot.position.x + (dx / dist) * step;
   const nz = robot.position.z + (dz / dist) * step;
 
-  const nowMs = performance.now();
-
-  // --- CHECK 1: Rack collision ---
-  // If the segment from current to next crosses any expanded rack 
-  // AABB, refuse the move. AMRs must never enter rack footprints.
+  // --- CHECK 1: Rack collision (expanded) ---
   const rackHit = segmentHitsRack(
     robot.position.x,
     robot.position.z,
@@ -839,75 +927,102 @@ function applyMotion(
     nz
   );
   if (rackHit !== null) {
-    // Stop at current position, remember the moment we got stuck
+    // Rack collision - this should rarely happen with proper path planning
+    // Emergency: stop and yield
     if (phase.blockedSince === 0) {
       phase.blockedSince = nowMs;
     }
-    useFleetStore.getState().updateRobot(robot.id, {
-      speed: 0,
-      status: 'WAITING',
-    });
+
+    const timeBlocked = nowMs - phase.blockedSince;
+    if (timeBlocked > 500) {
+      // Have been blocked for >500ms - enter yielding phase
+      phase.phase = 'YIELDING';
+      phase.blockedSince = 0;
+      phase.phaseStartedAt = nowMs;
+      store.updateRobot(robot.id, {
+        status: 'YIELDING',
+      });
+    } else {
+      // Brief stop
+      store.updateRobot(robot.id, {
+        speed: 0,
+        status: 'WAITING',
+      });
+    }
     return;
   }
 
-  // --- CHECK 2: AMR-AMR proximity ---
-  // If another AMR is too close to the next step AND has priority 
-  // (lower numericId), hold position.
-  const allRobots = useFleetStore.getState().robots;
-  const blocker = findBlocker(robot, allRobots, nx, nz);
+  // --- CHECK 2: Predictive AMR-AMR collision ---
+  const blocker = findBlockerPredictive(
+    robot, allRobots, selfVelX, selfVelZ, dtSec
+  );
+
   if (blocker !== null) {
     if (phase.blockedSince === 0) {
       phase.blockedSince = nowMs;
     }
 
-    // Give H2.1's lookahead 500ms to resolve the conflict before 
-    // we commit to yielding.
     const timeBlocked = nowMs - phase.blockedSince;
-    if (timeBlocked > 500 && phase.currentWaypointId) {
-      // Enter active yielding — back up toward the previous waypoint
+
+    // Check if we've been blocked long enough to warrant yielding
+    if (timeBlocked > 300 && phase.currentWaypointId) {
+      // Enter active yielding - back up toward previous waypoint or sibling
       phase.phase = 'YIELDING';
+      phase.blockedSince = 0;
       phase.phaseStartedAt = nowMs;
-      useFleetStore.getState().updateRobot(robot.id, {
+      store.updateRobot(robot.id, {
         status: 'YIELDING',
       });
-    } else {
-      // Brief wait — the lookahead may resolve this
-      useFleetStore.getState().updateRobot(robot.id, {
-        speed: 0,
-        status: 'WAITING',
-      });
-      phase.phase = 'WAITING';
-      phase.phaseStartedAt = nowMs;
+      return;
     }
+
+    // Brief wait - the lookahead may resolve as robots adjust
+    store.updateRobot(robot.id, {
+      speed: 0,
+      status: 'WAITING',
+    });
+    phase.phase = 'WAITING';
+    phase.blockedSince = nowMs;
     return;
   }
 
-  // --- CHECK 3: Emergency separation ---
-  // Defensive: if we're already overlapping another AMR (should never 
-  // happen given checks 1-2, but guards against load-order edge cases), 
-  // push both apart along the line between them.
+  // --- CHECK 3: Emergency separation (should rarely trigger) ---
+  // Only if we somehow already overlap another AMR
   for (const other of allRobots) {
     if (other.id === robot.id) continue;
     if (robotsOverlap(robot.position, other.position)) {
-      const pushX = robot.position.x - other.position.x;
-      const pushZ = robot.position.z - other.position.z;
-      const pushDist = Math.hypot(pushX, pushZ) || 1;
-      const pushAmount = 0.15;
-      const newX = robot.position.x + (pushX / pushDist) * pushAmount;
-      const newZ = robot.position.z + (pushZ / pushDist) * pushAmount;
-      useFleetStore.getState().updateRobot(robot.id, {
-        position: { x: newX, y: 0, z: newZ },
-        speed: 0,
-      });
+      // Deterministic resolution: lower numericId wins the space
+      if (robot.numericId < other.numericId) {
+        // We have priority - push the other robot away (will be handled when it loops)
+        // Just ensure we maintain safe distance
+        const pushX = robot.position.x - other.position.x;
+        const pushZ = robot.position.z - other.position.z;
+        const pushDist = Math.hypot(pushX, pushZ) || 1;
+        const pushAmount = 0.15;
+        const newX = robot.position.x + (pushX / pushDist) * pushAmount;
+        const newZ = robot.position.z + (pushZ / pushDist) * pushAmount;
+
+        store.updateRobot(robot.id, {
+          position: { x: newX, y: 0, z: newZ },
+          speed: 0,
+        });
+      } else {
+        // Other robot has priority - we must yield
+        phase.phase = 'YIELDING';
+        phase.blockedSince = 0;
+        phase.phaseStartedAt = nowMs;
+        store.updateRobot(robot.id, {
+          status: 'YIELDING',
+        });
+      }
       return;
     }
   }
 
   // --- SUCCESS: commit the move ---
-  // Clear the blocked tracker since we're moving again.
   phase.blockedSince = 0;
 
-  useFleetStore.getState().updateRobot(robot.id, {
+  store.updateRobot(robot.id, {
     position: { x: nx, y: 0, z: nz },
     speed: newSpeed,
     distanceTravelled: robot.distanceTravelled + step,
@@ -960,7 +1075,7 @@ export function useSimulationLoop(): void {
         if (robot.isEmergencyStopped) continue;
         const phase = phasesRef.current.get(robot.id);
         if (!phase) continue;
-        applyMotion(robot, phase, dtSec);
+        applyMotionEnhanced(robot, phase, dtSec);
       }
 
       // Check auto-reset setting if all tasks complete

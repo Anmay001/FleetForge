@@ -30,32 +30,32 @@ const STEPS: TourStep[] = [
     title: 'Meet your fleet',
     body:
       'Every robot streams live telemetry — position, battery, ' +
-      'task, and last command. Click any robot on the 3D scene or ' +
-      'use keys 1–5 to inspect it.',
+      'task, and last command. Click any robot on the 3D scene in the main view or ' +
+      'select them from the sidebar to inspect telemetry.',
     position: 'right',
   },
   {
     eyebrow: 'STEP 2 OF 4',
     title: 'Watch them think',
     body:
-      'Robots negotiate passage through pheromone trails, peer ' +
-      'imitation, and reservation locks. No collisions. No deadlocks.',
+      'Robots negotiate passage through pheromone trails and dynamic lookahead. ' +
+      'Watch the live KPI counters and event feed at the bottom right.',
     position: 'bottom',
   },
   {
     eyebrow: 'STEP 3 OF 4',
     title: 'Give commands',
     body:
-      'Stop, pause, reroute, or send any robot to charge. Emergencies ' +
-      'halt the whole fleet with one click.',
-    position: 'right',
+      'Use the command toolbar above the 3D canvas to pause, reset, ' +
+      'add tasks, or trigger an emergency stop for the whole fleet.',
+    position: 'top',
   },
   {
     eyebrow: 'STEP 4 OF 4',
     title: 'Ready when you are',
     body:
-      'Press ? anytime for keyboard shortcuts. Drag the scene to ' +
-      'orbit, scroll to zoom. Welcome aboard.',
+      'Use the left sidebar to switch views (Dashboard, 3D Simulation, Analytics, Tasks). ' +
+      'Press ? anytime for shortcuts. Enjoy FleetForge!',
     position: 'center',
   },
 ];

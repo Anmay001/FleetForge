@@ -943,9 +943,9 @@ function applyMotionEnhanced(
         status: 'YIELDING',
       });
     } else {
-      // Brief stop
+      // Brief crawl instead of stop
       store.updateRobot(robot.id, {
-        speed: 0,
+        speed: 0.1,
         status: 'WAITING',
       });
     }
@@ -976,9 +976,9 @@ function applyMotionEnhanced(
       return;
     }
 
-    // Brief wait - the lookahead may resolve as robots adjust
+    // Gentle crawl - the lookahead will resolve as robots adjust smoothly
     store.updateRobot(robot.id, {
-      speed: 0,
+      speed: 0.15,
       status: 'WAITING',
     });
     phase.phase = 'WAITING';
